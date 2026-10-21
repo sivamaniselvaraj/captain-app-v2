@@ -18,6 +18,7 @@ import com.octanovus.data.AppPrefs
 import com.octanovus.data.TableInfo
 import com.octanovus.ui.CaptainTheme
 import com.octanovus.ui.MenuScreen
+import com.octanovus.ui.MyOrdersScreen
 import com.octanovus.ui.PairScreen
 import com.octanovus.ui.SetPinScreen
 import com.octanovus.ui.SplashScreen
@@ -27,7 +28,7 @@ import com.octanovus.viewmodel.PlacedOrder
 import com.octanovus.ui.OrderSentScreen
 
 /** The screens so far, in order for a new phone. */
-enum class Stage { PAIR, SET_PIN, PIN_LOGIN, TABLES, MENU, VIEW_ORDER, ORDER_SENT }
+enum class Stage { PAIR, SET_PIN, PIN_LOGIN, TABLES, MENU, VIEW_ORDER, ORDER_SENT, MY_ORDERS }
 
 private const val REMOVED_NOTICE = "This phone was removed from the desktop. Pair it again to continue."
 
@@ -102,15 +103,26 @@ class MainActivity : ComponentActivity() {
                                 OrderSentScreen(
                                     order = order,
                                     onBackToMenu = { stage = Stage.MENU },
-                                    onMyOrders = { toast("My orders screen comes next.") },
+                                    onMyOrders = { stage = Stage.MY_ORDERS },
                                 )
                             }
+                            Stage.MY_ORDERS -> MyOrdersScreen(
+                                onBack = { stage = Stage.TABLES },
+                                onAddItems = { table ->
+                                    selectedTable = table
+                                    stage = Stage.MENU
+                                },
+                                onUnpaired = {
+                                    notice = REMOVED_NOTICE
+                                    stage = Stage.PAIR
+                                },
+                            )
                             Stage.TABLES -> TablesScreen(
                                 onTableSelected = { table ->
                                     selectedTable = table
                                     stage = Stage.MENU
                                 },
-                                onMyOrders = { toast("My orders screen comes next.") },
+                                onMyOrders = { stage = Stage.MY_ORDERS },
                                 onProfile = { toast("Settings screen comes next.") },
                                 onUnpaired = {
                                     notice = REMOVED_NOTICE

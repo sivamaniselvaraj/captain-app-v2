@@ -78,6 +78,6 @@ fun JSONObject.toLevels(): List<OverdueLevel> {
     return list.sortedBy { it.fromMinutes }
 }
 
-private fun parseInstant(text: String): Instant? =
+fun parseInstant(text: String): Instant? =
     runCatching { Instant.parse(text) }.getOrNull()
         ?: runCatching { OffsetDateTime.parse(text).toInstant() }.getOrNull()

@@ -25,16 +25,12 @@ import kotlinx.coroutines.withContext
 /** Result of a conditional GET. [json] is null when the desktop answered 304 Not Modified. */
 data class Conditional(val json: JSONObject?, val etag: String?)
 
-/** Names the PIN login response may use for the unlock token, tried in order. */
-private val UNLOCK_TOKEN_FIELDS = listOf("tokenHash", "unlockToken", "token_hash", "token")
-
 class ApiClient(private val prefs: AppPrefs) {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
-
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
@@ -48,7 +44,7 @@ class ApiClient(private val prefs: AppPrefs) {
      * Pairs this phone. The waiter's email and password go to the desktop,
      * which checks them with the cloud. The phone does not sign in itself.
      * PROPOSED body, not yet in the desktop API document:
-     *   POST /api/pair  { "code", "deviceName", "email", "password" }  (no token)
+     *   POST /api/signin  { "code", "deviceName", "email", "password" }  (no token)
      *   200 -> { "token": "fop_<id>.<secret>", "deviceId", "deviceName", "userName" }
      */
     suspend fun pair(
@@ -145,11 +141,22 @@ class ApiClient(private val prefs: AppPrefs) {
                 Log.e("CaptainApi", "Request to ${prefs.serverUrl} failed", e)
                 ApiResult.Err(
                     "Cannot reach the desktop at ${prefs.serverUrl}. " +
-                            "Cause: ${e.javaClass.simpleName}: ${e.message ?: "no message"}.",
+                        "Cause: ${e.javaClass.simpleName}: ${e.message ?: "no message"}.",
                 )
             }
         }
     }
+
+    /**
+     * Marks one item of an order as served.
+     * PROPOSED path and body, to be replaced with the desktop's real endpoint:
+     * POST /api/orders/{orderId}/items/{itemId}/served  {}
+     */
+    suspend fun markItemServed(orderId: String, itemId: String): ApiResult<JSONObject> =
+        protectedPost(
+            "/api/orders/${android.net.Uri.encode(orderId)}/items/${android.net.Uri.encode(itemId)}/served",
+            JSONObject(),
+        )
 
     /** POST with the device token and PIN. Use for every protected call. */
     suspend fun protectedPost(
@@ -209,5 +216,8 @@ class ApiClient(private val prefs: AppPrefs) {
 
     companion object {
         private val NOT_PAIRED = ApiResult.Err("This phone is not paired yet.", 401)
+
+        /** Names the PIN login response may use for the unlock token, tried in order. */
+        private val UNLOCK_TOKEN_FIELDS = listOf("tokenHash", "unlockToken", "token_hash", "token")
     }
 }

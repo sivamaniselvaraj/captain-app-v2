@@ -121,21 +121,6 @@ private fun Header(onProfile: () -> Unit, onMyOrders: () -> Unit) {
 }
 
 @Composable
-private fun RoundIconButton(glyph: String, description: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(Color.White)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(glyph, fontSize = 18.sp)
-    }
-}
-
-@Composable
 private fun CenterMessage(text: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(text, color = Muted, fontSize = 14.sp, textAlign = TextAlign.Center)
@@ -303,15 +288,3 @@ private fun Modifier.dashedBorder(color: Color): Modifier = drawBehind {
     )
 }
 
-private fun parseColor(hex: String?, fallback: Color): Color =
-    try {
-        Color(android.graphics.Color.parseColor(hex))
-    } catch (e: Exception) {
-        fallback
-    }
-
-private fun elapsedMinutes(since: Instant?, now: Instant): Int =
-    if (since == null) 0 else Duration.between(since, now).toMinutes().coerceAtLeast(0).toInt()
-
-private fun formatElapsed(minutes: Int): String =
-    if (minutes < 60) "$minutes min" else "${minutes / 60} h ${minutes % 60} min"

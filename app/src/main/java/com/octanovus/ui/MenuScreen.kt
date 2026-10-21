@@ -419,18 +419,3 @@ private fun ViewOrderBar(count: Int, onClick: () -> Unit, modifier: Modifier = M
         Text("View order", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }
-
-@Composable
-private fun RoundIconButton(glyph: String, description: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(Color.White)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(glyph, fontSize = 18.sp)
-    }
-}

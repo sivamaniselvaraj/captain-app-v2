@@ -34,7 +34,21 @@ data class CartState(
     val lines: Map<String, CartLine> = emptyMap(),
     /** The "Additional instruction" for the whole order. Sent as `notes`. */
     val notes: String = "",
+    /** Optional guest details, sent as `customerName` and `customerPhone`. */
+    val customerName: String = "",
+    val customerPhone: String = "",
+    /** Number of people at the table. Optional. */
+    val occupants: Int? = null,
+    /** True once the waiter has filled in or skipped the customer details for this new order. */
+    val customerStepDone: Boolean = false,
 ) {
+    /**
+     * The customer details screen shows once per new order: when the table is free and the waiter
+     * has not yet filled it in or skipped it. Extra rounds on an occupied table never show it.
+     */
+    fun needsCustomerStep(table: TableInfo): Boolean =
+        table.startsNewOrder && !(tableId == table.tableId && customerStepDone)
+
     val totalQuantity: Int get() = lines.values.sumOf { it.quantity }
     fun quantityOf(menuItemId: String): Int = lines[menuItemId]?.quantity ?: 0
 
@@ -70,6 +84,8 @@ data class PlaceState(
     /** The desktop says this device is no longer paired. The app goes back to pairing. */
     val unauthorised: Boolean = false,
 )
+
+private const val SEND_OCCUPANTS = false
 
 const val MAX_LINES = 60
 const val MAX_QUANTITY = 99
@@ -122,13 +138,34 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
         orderChanged()
     }
 
+    /** Saves the guest details and marks the customer step done for this table's new order. */
+    fun setCustomer(table: TableInfo, name: String, phone: String, occupants: Int?) {
+        startFor(table)
+        _state.update {
+            it.copy(
+                customerName = name.trim(),
+                customerPhone = phone.trim(),
+                occupants = occupants,
+                customerStepDone = true,
+            )
+        }
+        orderChanged()
+    }
+
+    /** The waiter skipped the customer details. They won't be asked again for this order. */
+    fun skipCustomer(table: TableInfo) {
+        startFor(table)
+        _state.update { it.copy(customerName = "", customerPhone = "", occupants = null, customerStepDone = true) }
+        orderChanged()
+    }
+
     fun setNotes(value: String) {
         _state.update { it.copy(notes = value.take(MAX_NOTES_LENGTH)) }
         orderChanged()
     }
 
     fun clear() {
-        _state.update { it.copy(lines = emptyMap(), notes = "") }
+        _state.update { it.copy(lines = emptyMap(), notes = "", customerName = "", customerPhone = "", occupants = null, customerStepDone = false) }
         orderChanged()
     }
 
@@ -158,6 +195,11 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
             .put("items", items)
             .put("clientRequestId", id)
         cart.notes.trim().takeIf { it.isNotEmpty() }?.let { body.put("notes", it) }
+        cart.customerName.takeIf { it.isNotBlank() }?.let { body.put("customerName", it) }
+        cart.customerPhone.takeIf { it.isNotBlank() }?.let { body.put("customerPhone", it) }
+        // The order API has no field for the number of guests yet, so it stays on the phone.
+        // Set SEND_OCCUPANTS to true, and check the field name, once the desktop accepts it.
+        if (SEND_OCCUPANTS) cart.occupants?.let { body.put("occupants", it) }
 
         viewModelScope.launch {
             _place.update { it.copy(placing = true, error = null) }
@@ -166,13 +208,24 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
                     // 201 for a new order, 200 when the desktop already had this clientRequestId.
                     // Either way the order exists, so the cart is emptied.
                     val orderNumber = result.value.optString("orderNumber").ifBlank { "?" }
-                    _state.update { it.copy(lines = emptyMap(), notes = "") }
+                    // The next order for this table starts clean, and asks for customer details again
+                    // only if the table is free again.
+                    _state.update {
+                        it.copy(
+                            lines = emptyMap(),
+                            notes = "",
+                            customerName = "",
+                            customerPhone = "",
+                            occupants = null,
+                            customerStepDone = false,
+                        )
+                    }
                     requestId = null
                     _place.value = PlaceState(placed = PlacedOrder(orderNumber, cart.tableNumber))
                 }
                 is ApiResult.Err -> {
                     val notPaired = result.code == 401 ||
-                            (result.code == 403 && result.message.contains("Pair it again", ignoreCase = true))
+                        (result.code == 403 && result.message.contains("Pair it again", ignoreCase = true))
                     if (notPaired) {
                         prefs.clearPairing()
                         _place.update { it.copy(placing = false, unauthorised = true) }

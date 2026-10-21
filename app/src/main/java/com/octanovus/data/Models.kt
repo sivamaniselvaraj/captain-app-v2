@@ -16,10 +16,15 @@ data class TableInfo(
     val since: Instant?,
     /** Number of open rounds on the table. */
     val openRounds: Int,
+    /** Seats at the table. Null when the desktop has no capacity set. */
+    val capacity: Int? = null,
 ) {
     val isAvailable: Boolean get() = status == STATUS_AVAILABLE
     val isOccupied: Boolean get() = status == STATUS_OCCUPIED
     val isCompleted: Boolean get() = status == STATUS_COMPLETED
+
+    /** A tap starts a brand new order (not an extra round) unless the table is occupied or completed. */
+    val startsNewOrder: Boolean get() = !isOccupied && !isCompleted
 
     companion object {
         const val STATUS_AVAILABLE = "available"
@@ -56,6 +61,7 @@ fun JSONObject.toTables(): List<TableInfo> {
             total = t.optDouble("total", 0.0).let { if (it.isNaN()) 0.0 else it },
             since = if (t.isNull("since")) null else parseInstant(t.optString("since")),
             openRounds = t.optJSONArray("orders")?.length() ?: 0,
+            capacity = if (!t.has("capacity") || t.isNull("capacity")) null else t.optInt("capacity").takeIf { it > 0 },
         )
     }
     return list.sortedWith(
@@ -78,6 +84,6 @@ fun JSONObject.toLevels(): List<OverdueLevel> {
     return list.sortedBy { it.fromMinutes }
 }
 
-fun parseInstant(text: String): Instant? =
+internal fun parseInstant(text: String): Instant? =
     runCatching { Instant.parse(text) }.getOrNull()
         ?: runCatching { OffsetDateTime.parse(text).toInstant() }.getOrNull()

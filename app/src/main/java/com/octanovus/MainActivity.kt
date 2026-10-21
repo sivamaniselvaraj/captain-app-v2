@@ -14,9 +14,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.octanovus.data.AppPrefs
 import com.octanovus.data.TableInfo
 import com.octanovus.ui.CaptainTheme
+import com.octanovus.ui.CustomerScreen
 import com.octanovus.ui.MenuScreen
 import com.octanovus.ui.MyOrdersScreen
 import com.octanovus.ui.PairScreen
@@ -26,9 +28,10 @@ import com.octanovus.ui.TablesScreen
 import com.octanovus.ui.ViewOrderScreen
 import com.octanovus.viewmodel.PlacedOrder
 import com.octanovus.ui.OrderSentScreen
+import com.octanovus.viewmodel.CartViewModel
 
 /** The screens so far, in order for a new phone. */
-enum class Stage { PAIR, SET_PIN, PIN_LOGIN, TABLES, MENU, VIEW_ORDER, ORDER_SENT, MY_ORDERS }
+enum class Stage { PAIR, SET_PIN, PIN_LOGIN, TABLES, MENU, VIEW_ORDER, ORDER_SENT, MY_ORDERS, CUSTOMER }
 
 private const val REMOVED_NOTICE = "This phone was removed from the desktop. Pair it again to continue."
 
@@ -61,6 +64,7 @@ class MainActivity : ComponentActivity() {
                         var notice by remember { mutableStateOf<String?>(null) }
                         var selectedTable by remember { mutableStateOf<TableInfo?>(null) }
                         var placedOrder by remember { mutableStateOf<PlacedOrder?>(null) }
+                        val cartVm: CartViewModel = viewModel()
                         when (stage) {
                             Stage.PAIR -> PairScreen(
                                 onPaired = { notice = null; stage = Stage.SET_PIN },
@@ -74,6 +78,13 @@ class MainActivity : ComponentActivity() {
                                     stage = Stage.PAIR
                                 },
                             )
+                            Stage.CUSTOMER -> selectedTable?.let { table ->
+                                CustomerScreen(
+                                    table = table,
+                                    onDone = { stage = Stage.MENU },
+                                    onBack = { stage = Stage.TABLES },
+                                )
+                            }
                             Stage.MENU -> selectedTable?.let { table ->
                                 MenuScreen(
                                     table = table,
@@ -120,7 +131,9 @@ class MainActivity : ComponentActivity() {
                             Stage.TABLES -> TablesScreen(
                                 onTableSelected = { table ->
                                     selectedTable = table
-                                    stage = Stage.MENU
+                                    // Customer details are asked once, for a new order on a free table.
+                                    stage = if (cartVm.state.value.needsCustomerStep(table)) Stage.CUSTOMER
+                                    else Stage.MENU
                                 },
                                 onMyOrders = { stage = Stage.MY_ORDERS },
                                 onProfile = { toast("Settings screen comes next.") },

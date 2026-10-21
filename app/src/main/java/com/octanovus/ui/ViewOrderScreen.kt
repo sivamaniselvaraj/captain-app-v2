@@ -100,6 +100,9 @@ fun ViewOrderScreen(
                         onRemove = { cartVm.remove(line.item.id) },
                     )
                 }
+                if (cart.customerName.isNotBlank() || cart.customerPhone.isNotBlank() || cart.occupants != null) {
+                    item(key = "customer") { CustomerCard(cart) }
+                }
                 item(key = "instruction") {
                     InstructionBox(cart.notes, enabled = !place.placing, onChange = cartVm::setNotes)
                 }
@@ -178,6 +181,29 @@ private fun LineCard(
                 StepButton("+", "Add one ${item.name}", filled = true, enabled = canAdd, onClick = onAdd)
             }
         }
+    }
+}
+
+@Composable
+private fun CustomerCard(cart: CartState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Text("Customer", fontSize = 12.sp, color = Muted)
+        Text(
+            listOfNotNull(
+                cart.customerName.takeIf { it.isNotBlank() },
+                cart.customerPhone.takeIf { it.isNotBlank() },
+                cart.occupants?.let { if (it == 1) "1 guest" else "$it guests" },
+            ).joinToString(" \u00B7 "),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 

@@ -51,6 +51,8 @@ fun CustomerScreen(
     table: TableInfo,
     onDone: () -> Unit,
     onBack: () -> Unit,
+    /** True when opened from View order to change the details, not at the start of an order. */
+    fromViewOrder: Boolean = false,
     cartVm: CartViewModel = viewModel(),
 ) {
     val cart by cartVm.state.collectAsState()
@@ -171,7 +173,7 @@ fun CustomerScreen(
                     onDone()
                 },
             ) {
-                Text("Skip", color = Ink, fontSize = 14.sp)
+                Text(if (fromViewOrder) "Remove details" else "Skip", color = Ink, fontSize = 14.sp)
             }
         }
     }

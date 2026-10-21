@@ -29,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,7 @@ fun ViewOrderScreen(
     table: TableInfo,
     onBack: () -> Unit,
     onPlaced: (PlacedOrder) -> Unit,
+    onEditCustomer: () -> Unit,
     onUnpaired: () -> Unit,
     cartVm: CartViewModel = viewModel(),
 ) {
@@ -100,8 +103,11 @@ fun ViewOrderScreen(
                         onRemove = { cartVm.remove(line.item.id) },
                     )
                 }
-                if (cart.customerName.isNotBlank() || cart.customerPhone.isNotBlank() || cart.occupants != null) {
-                    item(key = "customer") { CustomerCard(cart) }
+                // Guest details belong to a new order. An extra round on an occupied table has none to edit.
+                if (table.startsNewOrder) {
+                    item(key = "customer") {
+                        CustomerCard(cart, enabled = !place.placing, onEdit = onEditCustomer)
+                    }
                 }
                 item(key = "instruction") {
                     InstructionBox(cart.notes, enabled = !place.placing, onChange = cartVm::setNotes)
@@ -122,7 +128,7 @@ fun ViewOrderScreen(
                 OutlineButton("Add more", enabled = !place.placing, onClick = onBack, modifier = Modifier.weight(1f))
                 PrimaryButton(
                     label = if (place.placing) "Placing..." else "Place order",
-                    detail = if (place.placing) null else formatMoney(cart.total),
+                    detail = if (place.placing) null else "",//formatMoney(cart.total),
                     enabled = !place.placing,
                     onClick = cartVm::placeOrder,
                     modifier = Modifier.weight(1f),
@@ -184,25 +190,40 @@ private fun LineCard(
     }
 }
 
+/** The guest details for this order, with a link to change them. Shows "Add" when there are none. */
 @Composable
-private fun CustomerCard(cart: CartState) {
-    Column(
+private fun CustomerCard(cart: CartState, enabled: Boolean, onEdit: () -> Unit) {
+    val details = listOfNotNull(
+        cart.customerName.takeIf { it.isNotBlank() },
+        cart.customerPhone.takeIf { it.isNotBlank() },
+        cart.occupants?.let { if (it == 1) "1 guest" else "$it guests" },
+    ).joinToString(" \u00B7 ")
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White)
+            .clickable(enabled = enabled, onClick = onEdit)
             .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Customer", fontSize = 12.sp, color = Muted)
+        Column(Modifier.weight(1f)) {
+            Text("Customer", fontSize = 12.sp, color = Muted)
+            Text(
+                details.ifEmpty { "No customer details" },
+                fontSize = 15.sp,
+                fontWeight = if (details.isEmpty()) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (details.isEmpty()) Muted else Ink,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
         Text(
-            listOfNotNull(
-                cart.customerName.takeIf { it.isNotBlank() },
-                cart.customerPhone.takeIf { it.isNotBlank() },
-                cart.occupants?.let { if (it == 1) "1 guest" else "$it guests" },
-            ).joinToString(" \u00B7 "),
-            fontSize = 15.sp,
+            if (details.isEmpty()) "Add" else "Edit",
+            fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 2.dp),
+            color = if (enabled) Ink else Dot,
+            modifier = Modifier.semantics { contentDescription = if (details.isEmpty()) "Add customer details" else "Edit customer details" },
         )
     }
 }

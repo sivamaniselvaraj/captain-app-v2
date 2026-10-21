@@ -65,6 +65,9 @@ class MainActivity : ComponentActivity() {
                         var selectedTable by remember { mutableStateOf<TableInfo?>(null) }
                         var placedOrder by remember { mutableStateOf<PlacedOrder?>(null) }
                         val cartVm: CartViewModel = viewModel()
+                        // Where the Customer details screen returns to: the menu at the start of an
+                        // order, or View order when the waiter is changing the details.
+                        var customerReturn by remember { mutableStateOf(Stage.MENU) }
                         when (stage) {
                             Stage.PAIR -> PairScreen(
                                 onPaired = { notice = null; stage = Stage.SET_PIN },
@@ -81,8 +84,12 @@ class MainActivity : ComponentActivity() {
                             Stage.CUSTOMER -> selectedTable?.let { table ->
                                 CustomerScreen(
                                     table = table,
-                                    onDone = { stage = Stage.MENU },
-                                    onBack = { stage = Stage.TABLES },
+                                    onDone = { stage = customerReturn },
+                                    onBack = {
+                                        stage = if (customerReturn == Stage.VIEW_ORDER) Stage.VIEW_ORDER
+                                        else Stage.TABLES
+                                    },
+                                    fromViewOrder = customerReturn == Stage.VIEW_ORDER,
                                 )
                             }
                             Stage.MENU -> selectedTable?.let { table ->
@@ -100,6 +107,10 @@ class MainActivity : ComponentActivity() {
                                 ViewOrderScreen(
                                     table = table,
                                     onBack = { stage = Stage.MENU },
+                                    onEditCustomer = {
+                                        customerReturn = Stage.VIEW_ORDER
+                                        stage = Stage.CUSTOMER
+                                    },
                                     onPlaced = {
                                         placedOrder = it
                                         stage = Stage.ORDER_SENT
@@ -131,7 +142,8 @@ class MainActivity : ComponentActivity() {
                             Stage.TABLES -> TablesScreen(
                                 onTableSelected = { table ->
                                     selectedTable = table
-                                    // Customer details are asked once, for a new order on a free table.
+                                    // Customer details are asked for a new order on a table with no orders.
+                                    customerReturn = Stage.MENU
                                     stage = if (cartVm.state.value.needsCustomerStep(table)) Stage.CUSTOMER
                                     else Stage.MENU
                                 },

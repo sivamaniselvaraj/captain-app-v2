@@ -11,6 +11,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,6 +33,9 @@ class ApiClient(private val prefs: AppPrefs) {
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
+
+    /** For the live stream: the desktop sends a keep-alive every 20 s, so 45 s of silence means it is dead. */
+    private val streamHttp by lazy { http.newBuilder().readTimeout(45, TimeUnit.SECONDS).build() }
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
@@ -83,7 +88,7 @@ class ApiClient(private val prefs: AppPrefs) {
 
     /**
      * PIN login from the splash screen. The desktop checks the PIN.
-     * PROPOSED: POST /api/pin/verify { "pin" } with the device token.
+     * PROPOSED: POST /api/session { "pin" } with the device token.
      * On success the PIN is kept in memory and sent with later requests.
      */
     suspend fun loginWithPin(pin: String): ApiResult<JSONObject> {
@@ -130,11 +135,7 @@ class ApiClient(private val prefs: AppPrefs) {
                     if (response.isSuccessful) {
                         ApiResult.Ok(Conditional(json ?: JSONObject(), response.header("ETag")))
                     } else {
-                        val serverMessage = json?.optString("error").orEmpty()
-                        ApiResult.Err(
-                            serverMessage.ifBlank { "Desktop returned HTTP ${response.code}." },
-                            response.code,
-                        )
+                        failure(response.code, json?.optString("error").orEmpty())
                     }
                 }
             } catch (e: IOException) {
@@ -157,6 +158,82 @@ class ApiClient(private val prefs: AppPrefs) {
             "/api/orders/${android.net.Uri.encode(orderId)}/items/${android.net.Uri.encode(itemId)}/served",
             JSONObject(),
         )
+
+    /** GET /api/notifications?after=<id>: what was missed since the last id received. */
+    suspend fun catchUp(afterId: Long): ApiResult<List<AppNotification>> =
+        when (val result = protectedGet("/api/notifications?after=$afterId")) {
+            is ApiResult.Ok -> ApiResult.Ok(result.value.toNotifications())
+            is ApiResult.Err -> result
+        }
+
+    /**
+     * Opens GET /api/events (Server-Sent Events) and calls [onNotification] for each notification
+     * until the stream ends. Blocks, so run it in a coroutine that can be cancelled.
+     * Returns Ok when the stream closed or the coroutine was cancelled, and Err when it could not
+     * connect or the connection dropped. A 401 means the device was revoked.
+     */
+    suspend fun streamEvents(
+        lastId: Long,
+        onOpen: () -> Unit,
+        onNotification: (AppNotification) -> Unit,
+    ): ApiResult<Unit> = withContext(Dispatchers.IO) {
+        val builder = authorisedBuilder("/api/events") ?: return@withContext NOT_PAIRED
+        builder.header("Accept", "text/event-stream")
+        if (lastId > 0) builder.header("Last-Event-ID", lastId.toString())
+        val call = streamHttp.newCall(builder.get().build())
+        // Cancelling the coroutine closes the connection, which ends the blocking read below.
+        val stopOnCancel = coroutineContext[Job]?.invokeOnCompletion { call.cancel() }
+        try {
+            val outcome: ApiResult<Unit> = call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    val text = response.body?.string().orEmpty()
+                    val message = try {
+                        JSONObject(text).optString("error")
+                    } catch (e: JSONException) {
+                        ""
+                    }
+                    return@use failure(response.code, message)
+                }
+                onOpen()
+                val source = response.body?.source() ?: return@use ApiResult.Ok(Unit)
+                var event = ""
+                val data = StringBuilder()
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    when {
+                        line.isEmpty() -> {
+                            // A blank line ends one event.
+                            if ((event.isEmpty() || event == "notification") && data.isNotBlank()) {
+                                runCatching { JSONObject(data.toString().trim()).toNotification() }
+                                    .getOrNull()
+                                    ?.let(onNotification)
+                            }
+                            event = ""
+                            data.setLength(0)
+                        }
+                        line.startsWith(":") -> Unit // keep-alive comment
+                        else -> {
+                            val colon = line.indexOf(':')
+                            val field = if (colon < 0) line else line.substring(0, colon)
+                            val value = if (colon < 0) "" else line.substring(colon + 1).removePrefix(" ")
+                            if (field == "event") event = value
+                            else if (field == "data") data.append(value).append('\n')
+                        }
+                    }
+                }
+                ApiResult.Ok(Unit)
+            }
+            outcome
+        } catch (e: IOException) {
+            if (!isActive) ApiResult.Ok(Unit)
+            else {
+                Log.w("CaptainApi", "Event stream dropped", e)
+                ApiResult.Err("Lost the connection to the desktop. ${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            }
+        } finally {
+            stopOnCancel?.dispose()
+        }
+    }
 
     /** POST with the device token and PIN. Use for every protected call. */
     suspend fun protectedPost(
@@ -197,11 +274,7 @@ class ApiClient(private val prefs: AppPrefs) {
                     if (response.isSuccessful) {
                         ApiResult.Ok<JSONObject>(json ?: JSONObject())
                     } else {
-                        val serverMessage = json?.optString("error").orEmpty()
-                        ApiResult.Err(
-                            serverMessage.ifBlank { "Desktop returned HTTP ${response.code}." },
-                            response.code,
-                        )
+                        failure(response.code, json?.optString("error").orEmpty())
                     }
                 }
             } catch (e: IOException) {
@@ -214,7 +287,29 @@ class ApiClient(private val prefs: AppPrefs) {
             }
         }
 
+    /**
+     * Builds the error for a failed reply. When the waiter was signed in and the desktop asks for
+     * the PIN again (idle too long), the login is dropped and the app returns to PIN login.
+     * The code becomes [PIN_EXPIRED] so no screen mistakes it for a revoked device (401).
+     * PROPOSED: the desktop answers 401, 403 or 423 with a message that mentions the PIN.
+     */
+    private fun failure(code: Int, serverMessage: String): ApiResult.Err {
+        val message = serverMessage.ifBlank { "Desktop returned HTTP $code." }
+        val signedIn = Session.pin != null || Session.unlockToken != null
+        if (signedIn && code in PIN_ERROR_CODES && PIN_REQUIRED.containsMatchIn(message) &&
+            !message.contains("pair", ignoreCase = true)
+        ) {
+            Session.expire()
+            return ApiResult.Err(message, PIN_EXPIRED)
+        }
+        return ApiResult.Err(message, code)
+    }
+
     companion object {
+        const val PIN_EXPIRED = 423
+        private val PIN_ERROR_CODES = setOf(401, 403, 423)
+        private val PIN_REQUIRED = Regex("\\b(pin|unlock|session)\\b", RegexOption.IGNORE_CASE)
+
         private val NOT_PAIRED = ApiResult.Err("This phone is not paired yet.", 401)
 
         /** Names the PIN login response may use for the unlock token, tried in order. */

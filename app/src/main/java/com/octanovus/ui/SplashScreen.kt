@@ -43,6 +43,7 @@ import com.octanovus.viewmodel.SplashViewModel
 fun SplashScreen(
     onSignedIn: () -> Unit = {},
     onUnpaired: () -> Unit = {},
+    notice: String? = null,
     vm: SplashViewModel = viewModel(),
 ) {
     val s by vm.state.collectAsState()
@@ -75,6 +76,10 @@ fun SplashScreen(
             color = Muted,
             textAlign = TextAlign.Center,
         )
+
+        notice?.let {
+            Text(it, color = BadRed, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        }
 
         Spacer(Modifier.height(8.dp))
         ConnectionStatus(s, onRetry = vm::checkDesktop)

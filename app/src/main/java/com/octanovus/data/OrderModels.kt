@@ -13,6 +13,8 @@ data class OrderStep(
     val color: String,
     val sortOrder: Int,
     val isFinal: Boolean,
+    /** Whether a change to this step should raise a notification for the waiter. */
+    val notifyWaiter: Boolean = true,
 )
 
 fun JSONObject.toSteps(): List<OrderStep> {
@@ -28,6 +30,7 @@ fun JSONObject.toSteps(): List<OrderStep> {
             color = s.optString("color"),
             sortOrder = s.optInt("sortOrder", i),
             isFinal = s.optBoolean("isFinal", false),
+            notifyWaiter = s.optBoolean("notifyWaiter", true),
         )
     }
     return list.sortedBy { it.sortOrder }

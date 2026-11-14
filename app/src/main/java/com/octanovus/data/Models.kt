@@ -26,7 +26,24 @@ data class TableInfo(
     /** A tap starts a brand new order (not an extra round) unless the table is occupied or completed. */
     val startsNewOrder: Boolean get() = !isOccupied && !isCompleted
 
+    /** The stand-in "table" for a takeaway order. It is not a real table on the desktop. */
+    val isTakeaway: Boolean get() = tableId == TAKEAWAY_ID
+
     companion object {
+        const val TAKEAWAY_ID = "takeaway"
+        const val TAKEAWAY_LABEL = "Takeaway"
+
+        /** Used to start a takeaway order: the same screens as a dine-in order, with no table. */
+        fun takeaway() = TableInfo(
+            tableId = TAKEAWAY_ID,
+            number = TAKEAWAY_LABEL,
+            floor = "",
+            status = STATUS_AVAILABLE,
+            total = 0.0,
+            since = null,
+            openRounds = 0,
+        )
+
         const val STATUS_AVAILABLE = "available"
         const val STATUS_OCCUPIED = "occupied"
         const val STATUS_COMPLETED = "completed"

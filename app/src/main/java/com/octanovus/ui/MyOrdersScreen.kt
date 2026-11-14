@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -50,6 +51,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.octanovus.data.MyOrder
+import com.octanovus.data.NotificationHub
 import com.octanovus.data.OrderItem
 import com.octanovus.data.TableInfo
 import com.octanovus.data.levelAt
@@ -78,6 +80,7 @@ private val StepGrey = Color(0xFF7F8C8D)
 fun MyOrdersScreen(
     onBack: () -> Unit,
     onAddItems: (TableInfo) -> Unit,
+    onNotifications: () -> Unit,
     onUnpaired: () -> Unit,
     vm: OrdersViewModel = viewModel(),
 ) {
@@ -97,7 +100,7 @@ fun MyOrdersScreen(
             .fillMaxSize()
             .background(Canvas),
     ) {
-        Header(s, onBack)
+        Header(s, onBack, onNotifications)
 
         s.error?.let {
             Text(
@@ -151,7 +154,8 @@ fun MyOrdersScreen(
 }
 
 @Composable
-private fun Header(s: OrdersState, onBack: () -> Unit) {
+private fun Header(s: OrdersState, onBack: () -> Unit, onNotifications: () -> Unit) {
+    val unread by NotificationHub.unread.collectAsState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -160,9 +164,36 @@ private fun Header(s: OrdersState, onBack: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         RoundIconButton("‹", "Back", onBack)
-        Column {
+        Column(Modifier.weight(1f)) {
             Text("My orders", fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(DateFormat.format(s.now), fontSize = 12.sp, color = Muted, modifier = Modifier.padding(top = 2.dp))
+        }
+        // The bell opens Notifications. The red badge counts the ones not opened yet.
+        Box {
+            RoundIconButton(
+                "\uD83D\uDD14",
+                if (unread > 0) "Notifications, $unread new" else "Notifications",
+                onNotifications,
+            )
+            if (unread > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .height(18.dp)
+                        .widthIn(min = 18.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(BadRed)
+                        .padding(horizontal = 5.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (unread > 99) "99+" else unread.toString(),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
     }
 }

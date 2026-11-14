@@ -3,7 +3,15 @@ package com.octanovus.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -15,6 +23,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +47,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.octanovus.data.AppPrefs
 import com.octanovus.data.OverdueLevel
 import com.octanovus.data.TableInfo
 import com.octanovus.data.levelAt
@@ -54,11 +68,25 @@ private val CompletedBlue = Color(0xFF34495E)
 fun TablesScreen(
     onTableSelected: (TableInfo) -> Unit,
     onMyOrders: () -> Unit,
+    onNewTakeaway: () -> Unit,
+    onNotifications: () -> Unit,
     onProfile: () -> Unit,
     onUnpaired: () -> Unit,
     vm: TablesViewModel = viewModel(),
 ) {
     val s by vm.state.collectAsState()
+    val add by vm.add.collectAsState()
+    var drawerOpen by rememberSaveable { mutableStateOf(false) }
+    var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val userName = remember { AppPrefs(context).pairedUserName }
+
+    LaunchedEffect(add.done) {
+        if (add.done) {
+            sheetOpen = false
+            vm.resetAdd()
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Poll only while the screen is on show.
@@ -69,13 +97,14 @@ fun TablesScreen(
         if (s.unauthorised) onUnpaired()
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Canvas)
             .padding(horizontal = 20.dp),
     ) {
-        Header(onProfile = onProfile, onMyOrders = onMyOrders)
+        Header(onProfile = onProfile, onMenu = { drawerOpen = true })
 
         s.error?.let {
             Text(
@@ -91,24 +120,43 @@ fun TablesScreen(
             s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
             s.loaded -> {
                 FloorChips(s, onSelect = vm::selectFloor)
-                TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
+                TableGrid(s, onTableSelected, onNewTable = { vm.resetAdd(); sheetOpen = true }, modifier = Modifier.weight(1f))
                 Legend(s.levels)
             }
 
             else -> Box(Modifier.weight(1f))
         }
     }
+
+    if (drawerOpen) {
+        MenuDrawer(
+            userName = userName,
+            onClose = { drawerOpen = false },
+            onNewTakeaway = { drawerOpen = false; onNewTakeaway() },
+            onMyOrders = { drawerOpen = false; onMyOrders() },
+            onNotifications = { drawerOpen = false; onNotifications() },
+        )
+    }
+    if (sheetOpen) {
+        AddTableSheet(
+            s = s,
+            add = add,
+            onClose = { sheetOpen = false },
+            onSave = vm::addTable,
+        )
+    }
+    }
 }
 
 @Composable
-private fun Header(onProfile: () -> Unit, onMyOrders: () -> Unit) {
+private fun Header(onProfile: () -> Unit, onMenu: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RoundIconButton("☺", "Profile", onProfile)
+        RoundIconButton("☰", "Menu", onMenu)
         Text(
             "Select table",
             fontSize = 18.sp,
@@ -116,7 +164,7 @@ private fun Header(onProfile: () -> Unit, onMyOrders: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f),
         )
-        RoundIconButton("☰", "My orders", onMyOrders)
+        RoundIconButton("☺", "Profile", onProfile)
     }
 }
 
@@ -163,6 +211,7 @@ private fun FloorChips(s: TablesState, onSelect: (String) -> Unit) {
 private fun TableGrid(
     s: TablesState,
     onTableSelected: (TableInfo) -> Unit,
+    onNewTable: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -180,6 +229,7 @@ private fun TableGrid(
                 onClick = { onTableSelected(table) },
             )
         }
+        item(key = "new-table") { NewTableTile(onClick = onNewTable) }
     }
 }
 
@@ -277,7 +327,7 @@ private fun Legend(levels: List<OverdueLevel>) {
     }
 }
 
-private fun Modifier.dashedBorder(color: Color): Modifier = drawBehind {
+internal fun Modifier.dashedBorder(color: Color): Modifier = drawBehind {
     drawRoundRect(
         color = color,
         cornerRadius = CornerRadius(16.dp.toPx()),

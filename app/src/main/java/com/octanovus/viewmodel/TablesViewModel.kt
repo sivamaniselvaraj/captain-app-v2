@@ -2,6 +2,7 @@ package com.octanovus.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppPrefs
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.time.Instant
 import kotlin.collections.filter
 import kotlin.collections.map
@@ -45,6 +48,14 @@ data class TablesState(
     }
 }
 
+/** Progress of "Add table". */
+data class AddTableState(
+    val busy: Boolean = false,
+    val error: String? = null,
+    /** The desktop saved the table. The sheet closes. */
+    val done: Boolean = false,
+)
+
 /**
  * Keeps the table grid in sync with the desktop.
  * The screen calls [pollLoop] only while it is visible, so polling stops in the background.
@@ -58,6 +69,49 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(TablesState())
     val state: StateFlow<TablesState> = _state.asStateFlow()
+
+    private val _add = MutableStateFlow(AddTableState())
+    val add: StateFlow<AddTableState> = _add.asStateFlow()
+
+    fun resetAdd() { _add.value = AddTableState() }
+
+    /**
+     * Adds a table to a floor.
+     * PROPOSED (the desktop team is exposing it): POST /api/tables { "tableNumber", "floor", "capacity" }.
+     * 201 on success. 409 or 422 when the number is taken or the body is not valid.
+     */
+    fun addTable(number: String, floor: String, seats: Int) {
+        if (_add.value.busy) return
+        val body = JSONObject()
+            .put("tableNumber", number.trim())
+            .put("floor", floor.trim())
+            .put("capacity", seats)
+        viewModelScope.launch {
+            _add.value = AddTableState(busy = true)
+            when (val result = api.protectedPost("/api/tables", body)) {
+                is ApiResult.Ok -> {
+                    etag = null
+                    refresh()
+                    _add.value = AddTableState(done = true)
+                }
+                is ApiResult.Err -> {
+                    if (result.code == 401) {
+                        prefs.clearPairing()
+                        _state.update { it.copy(unauthorised = true) }
+                        _add.value = AddTableState()
+                    } else {
+                        val message = when (result.code) {
+                            409 -> "Table ${number.trim()} already exists on that floor."
+                            429 -> "Too many requests. Wait a moment, then try again."
+                            503 -> "Desktop app is not ready."
+                            else -> result.message
+                        }
+                        _add.value = AddTableState(error = message)
+                    }
+                }
+            }
+        }
+    }
 
     fun selectFloor(floor: String) = _state.update { it.copy(selectedFloor = floor) }
 

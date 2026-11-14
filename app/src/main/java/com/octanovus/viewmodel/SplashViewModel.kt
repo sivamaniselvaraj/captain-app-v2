@@ -86,6 +86,12 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
         checkDesktop()
     }
 
+    /** Back to a clean PIN screen after the desktop ended the session (idle too long). */
+    fun resetForRelogin() {
+        _state.update { it.copy(signedInAs = null, pin = "", pinError = null, busy = false, revoked = false) }
+        checkDesktop()
+    }
+
     // ---- Desktop check ------------------------------------------------------------------
 
     fun checkDesktop() {
@@ -108,6 +114,7 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }
+            if (result is ApiResult.Ok) verifyDevice()
         }
     }
 

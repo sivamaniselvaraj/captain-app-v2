@@ -2,14 +2,12 @@ package com.octanovus.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppPrefs
 import com.octanovus.data.TableInfo
 import com.octanovus.data.MenuItem
-
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -189,11 +187,13 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
                             .put("totalPrice", it.quantity * it.item.price)
             )
         }
+        val isTakeaway = tableId == TableInfo.TAKEAWAY_ID
+        // Same API for both. A takeaway order has its own order type and no table.
         val body = JSONObject()
-            .put("orderType", "dine_in")
-            .put("tableId", tableId)
+            .put("orderType", if (isTakeaway) "takeaway" else "dine_in")
             .put("items", items)
             .put("clientRequestId", id)
+        if (!isTakeaway) body.put("tableId", tableId)
         cart.notes.trim().takeIf { it.isNotEmpty() }?.let { body.put("notes", it) }
         cart.customerName.takeIf { it.isNotBlank() }?.let { body.put("customerName", it) }
         cart.customerPhone.takeIf { it.isNotBlank() }?.let { body.put("customerPhone", it) }

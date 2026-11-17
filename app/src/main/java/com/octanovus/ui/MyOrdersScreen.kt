@@ -359,7 +359,7 @@ private fun TableCard(
             }
             Column(Modifier.weight(1f)) {
                 val place = group.floor.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                Text("Table ${group.tableNumber}$place", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Table ${group.tableNumber.orEmpty()}$place", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Text(summary, fontSize = 12.sp, color = Muted, modifier = Modifier.padding(top = 2.dp))
             }
             Text(if (expanded) "⌃" else "⌄", fontSize = 16.sp, color = Muted)

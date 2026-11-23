@@ -53,8 +53,6 @@ import com.octanovus.data.TableInfo
 import com.octanovus.data.levelAt
 import com.octanovus.viewmodel.TablesState
 import com.octanovus.viewmodel.TablesViewModel
-import java.time.Duration
-import java.time.Instant
 
 private val CompletedBlue = Color(0xFF34495E)
 
@@ -68,25 +66,19 @@ private val CompletedBlue = Color(0xFF34495E)
 fun TablesScreen(
     onTableSelected: (TableInfo) -> Unit,
     onMyOrders: () -> Unit,
-    onNewTakeaway: () -> Unit,
+    onNewTakeaway: (deliverTo: String) -> Unit,
     onNotifications: () -> Unit,
     onProfile: () -> Unit,
     onUnpaired: () -> Unit,
     vm: TablesViewModel = viewModel(),
 ) {
     val s by vm.state.collectAsState()
-    val add by vm.add.collectAsState()
+    val mine by vm.mine.collectAsState()
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
-    var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    var takeawayOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val userName = remember { AppPrefs(context).pairedUserName }
 
-    LaunchedEffect(add.done) {
-        if (add.done) {
-            sheetOpen = false
-            vm.resetAdd()
-        }
-    }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Poll only while the screen is on show.
@@ -98,53 +90,60 @@ fun TablesScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Canvas)
-            .padding(horizontal = 20.dp),
-    ) {
-        Header(onProfile = onProfile, onMenu = { drawerOpen = true })
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Canvas)
+                .padding(horizontal = 20.dp),
+        ) {
+            Header(onProfile = onProfile, onMenu = { drawerOpen = true })
 
-        s.error?.let {
-            Text(
-                if (s.loaded) "$it Showing the last known tables." else it,
-                color = BadRed,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-        }
-
-        when {
-            !s.loaded && s.error == null -> CenterMessage("Loading tables...")
-            s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
-            s.loaded -> {
-                FloorChips(s, onSelect = vm::selectFloor)
-                TableGrid(s, onTableSelected, onNewTable = { vm.resetAdd(); sheetOpen = true }, modifier = Modifier.weight(1f))
-                Legend(s.levels)
+            s.error?.let {
+                Text(
+                    if (s.loaded) "$it Showing the last known tables." else it,
+                    color = BadRed,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
 
-            else -> Box(Modifier.weight(1f))
-        }
-    }
+            when {
+                !s.loaded && s.error == null -> CenterMessage("Loading tables...")
+                s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
+                s.loaded -> {
+                    FloorChips(s, onSelect = vm::selectFloor)
+                    TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
+                    Legend(s.levels)
+                }
 
-    if (drawerOpen) {
-        MenuDrawer(
-            userName = userName,
-            onClose = { drawerOpen = false },
-            onNewTakeaway = { drawerOpen = false; onNewTakeaway() },
-            onMyOrders = { drawerOpen = false; onMyOrders() },
-            onNotifications = { drawerOpen = false; onNotifications() },
-        )
-    }
-    if (sheetOpen) {
-        AddTableSheet(
-            s = s,
-            add = add,
-            onClose = { sheetOpen = false },
-            onSave = vm::addTable,
-        )
-    }
+                else -> Box(Modifier.weight(1f))
+            }
+        }
+
+        if (drawerOpen) {
+            MenuDrawer(
+                userName = userName,
+                onClose = { drawerOpen = false },
+                onNewTakeaway = {
+                    drawerOpen = false
+                    takeawayOpen = true
+                    vm.loadMyTables()
+                },
+                onMyOrders = { drawerOpen = false; onMyOrders() },
+                onNotifications = { drawerOpen = false; onNotifications() },
+            )
+        }
+        if (takeawayOpen) {
+            TakeawaySheet(
+                mine = mine,
+                onClose = { takeawayOpen = false },
+                onRetry = vm::loadMyTables,
+                onContinue = { table ->
+                    takeawayOpen = false
+                    onNewTakeaway(table.number)
+                },
+            )
+        }
     }
 }
 
@@ -177,7 +176,7 @@ private fun CenterMessage(text: String) {
 
 @Composable
 private fun FloorChips(s: TablesState, onSelect: (String) -> Unit) {
-    if (s.floors.size < 2) return
+    if (s.floors.isEmpty()) return
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -211,7 +210,6 @@ private fun FloorChips(s: TablesState, onSelect: (String) -> Unit) {
 private fun TableGrid(
     s: TablesState,
     onTableSelected: (TableInfo) -> Unit,
-    onNewTable: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -229,7 +227,6 @@ private fun TableGrid(
                 onClick = { onTableSelected(table) },
             )
         }
-        item(key = "new-table") { NewTableTile(onClick = onNewTable) }
     }
 }
 
@@ -259,8 +256,8 @@ private fun TableTile(
                     .padding(horizontal = 14.dp, vertical = 12.dp)
                     .semantics {
                         contentDescription = "Table ${table.number}, occupied, " +
-                                "${level?.name ?: "no level"}, ${formatElapsed(minutes)}, " +
-                                "${formatMoney(table.total)} rupees"
+                            "${level?.name ?: "no level"}, ${formatElapsed(minutes)}, " +
+                            "${formatMoney(table.total)} rupees"
                     },
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -327,7 +324,7 @@ private fun Legend(levels: List<OverdueLevel>) {
     }
 }
 
-internal fun Modifier.dashedBorder(color: Color): Modifier = drawBehind {
+private fun Modifier.dashedBorder(color: Color): Modifier = drawBehind {
     drawRoundRect(
         color = color,
         cornerRadius = CornerRadius(16.dp.toPx()),

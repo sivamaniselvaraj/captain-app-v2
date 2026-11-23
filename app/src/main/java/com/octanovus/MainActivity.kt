@@ -264,9 +264,9 @@ class MainActivity : ComponentActivity() {
                                 // Customer details are asked for a new order on a table with no orders.
                                 onTableSelected = ::openTable,
                                 onMyOrders = { stage = Stage.MY_ORDERS },
-                                onNewTakeaway = {
-                                    // Takeaway reuses the menu and View order. It has no table.
-                                    selectedTable = TableInfo.takeaway()
+                                onNewTakeaway = { deliverTo ->
+                                    // Takeaway reuses the menu and View order. The table it is for goes in the order notes.
+                                    selectedTable = TableInfo.takeaway(deliverTo)
                                     customerReturn = Stage.MENU
                                     stage = Stage.MENU
                                 },

@@ -18,6 +18,8 @@ data class TableInfo(
     val openRounds: Int,
     /** Seats at the table. Null when the desktop has no capacity set. */
     val capacity: Int? = null,
+    /** For the takeaway stand-in only: the number of the table the order is delivered to. */
+    val deliverTo: String? = null,
 ) {
     val isAvailable: Boolean get() = status == STATUS_AVAILABLE
     val isOccupied: Boolean get() = status == STATUS_OCCUPIED
@@ -34,7 +36,7 @@ data class TableInfo(
         const val TAKEAWAY_LABEL = "Takeaway"
 
         /** Used to start a takeaway order: the same screens as a dine-in order, with no table. */
-        fun takeaway() = TableInfo(
+        fun takeaway(deliverTo: String) = TableInfo(
             tableId = TAKEAWAY_ID,
             number = TAKEAWAY_LABEL,
             floor = "",
@@ -42,6 +44,7 @@ data class TableInfo(
             total = 0.0,
             since = null,
             openRounds = 0,
+            deliverTo = deliverTo,
         )
 
         const val STATUS_AVAILABLE = "available"
@@ -63,6 +66,8 @@ data class OverdueLevel(
 fun List<OverdueLevel>.levelAt(minutes: Int): OverdueLevel? =
     filter { it.fromMinutes <= minutes }.maxByOrNull { it.fromMinutes }
 
+private const val BILL_PRINTED = "printed"
+
 fun JSONObject.toTables(): List<TableInfo> {
     val array = optJSONArray("tables") ?: return emptyList()
     val list = ArrayList<TableInfo>(array.length())
@@ -70,14 +75,19 @@ fun JSONObject.toTables(): List<TableInfo> {
         val t = array.optJSONObject(i) ?: continue
         val id = t.optString("tableId")
         if (id.isBlank()) continue
+        // A table that is completed and whose bill is printed is done: show it as free.
+        // PROPOSED: `billStatus` is "printed" once the desktop has printed the bill. To be confirmed.
+        val status = t.optString("status")
+        val released = status == TableInfo.STATUS_COMPLETED &&
+            t.optString("billStatus").equals(BILL_PRINTED, ignoreCase = true)
         list += TableInfo(
             tableId = id,
             number = t.optString("tableNumber").ifBlank { "?" },
             floor = if (t.isNull("floor")) "" else t.optString("floor").trim(),
-            status = t.optString("status"),
-            total = t.optDouble("total", 0.0).let { if (it.isNaN()) 0.0 else it },
-            since = if (t.isNull("since")) null else parseInstant(t.optString("since")),
-            openRounds = t.optJSONArray("orders")?.length() ?: 0,
+            status = if (released) TableInfo.STATUS_AVAILABLE else status,
+            total = if (released) 0.0 else t.optDouble("total", 0.0).let { if (it.isNaN()) 0.0 else it },
+            since = if (released || t.isNull("since")) null else parseInstant(t.optString("since")),
+            openRounds = if (released) 0 else t.optJSONArray("orders")?.length() ?: 0,
             capacity = if (!t.has("capacity") || t.isNull("capacity")) null else t.optInt("capacity").takeIf { it > 0 },
         )
     }

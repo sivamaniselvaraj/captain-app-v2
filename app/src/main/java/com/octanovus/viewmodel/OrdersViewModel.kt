@@ -32,6 +32,7 @@ data class TableGroup(
 ) {
     val itemCount: Int get() = orders.sumOf { order -> order.items.sumOf { it.quantity } }
     val total: Double get() = orders.sumOf { it.total }
+    val isTakeaway: Boolean get() = orders.firstOrNull()?.isTakeaway == true
 }
 
 data class OrdersState(

@@ -25,12 +25,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -47,8 +52,8 @@ import com.octanovus.viewmodel.PlacedOrder
  * Review the cart for the selected table, change quantities, add an instruction for the kitchen
  * and place the order. Follows the light mock ("View order").
  *
- * The per-item "Modify" link from the mock is left out: the desktop's order API takes only the
- * item and quantity for each line, plus one note for the whole order.
+ * Each line has its own note (one note for the whole quantity) and a button that removes the whole
+ * line. The order also has one instruction for the kitchen.
  */
 @Composable
 fun ViewOrderScreen(
@@ -73,13 +78,19 @@ fun ViewOrderScreen(
         if (place.unauthorised) onUnpaired()
     }
     BackHandler(enabled = !place.placing, onBack = onBack)
+    var noteFor by remember { mutableStateOf<String?>(null) }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Canvas),
     ) {
-        TableHeader("View order", table.number, onBack)
+        TableHeader(
+            if (table.isTakeaway) "View order · Table ${table.deliverTo ?: "?"}" else "View order",
+            table.number,
+            onBack,
+        )
 
         if (cart.lines.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -101,6 +112,8 @@ fun ViewOrderScreen(
                         canRemove = !place.placing,
                         onAdd = { cartVm.add(line.item) },
                         onRemove = { cartVm.remove(line.item.id) },
+                        onNote = { noteFor = line.item.id },
+                        onRemoveItem = { cartVm.removeLine(line.item.id) },
                     )
                 }
                 // Guest details belong to a new order. An extra round on an occupied table has none to edit.
@@ -136,6 +149,19 @@ fun ViewOrderScreen(
             }
         }
     }
+
+    noteFor?.let { id ->
+        val line = cart.lines[id]
+        if (line == null) noteFor = null
+        else NoteSheet(
+            itemName = line.item.name,
+            quantity = line.quantity,
+            initial = line.note,
+            onSave = { cartVm.setItemNote(id, it); noteFor = null },
+            onClose = { noteFor = null },
+        )
+    }
+    }
 }
 
 @Composable
@@ -145,48 +171,108 @@ private fun LineCard(
     canRemove: Boolean,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
+    onNote: () -> Unit,
+    onRemoveItem: () -> Unit,
 ) {
     val item = line.item
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .background(Color.White),
     ) {
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                VegMarker(item.isVeg)
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    VegMarker(item.isVeg)
+                    Text(
+                        item.name,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 Text(
-                    item.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f, fill = false),
+                    listOfNotNull("${formatMoney(item.price)} each", item.taxLabel).joinToString(" "),
+                    fontSize = 12.sp,
+                    color = Muted,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(formatMoney(line.lineTotal), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StepButton("\u2212", "Remove one ${item.name}", filled = false, enabled = canRemove, onClick = onRemove)
+                    Text(
+                        line.quantity.toString(),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.widthIn(min = 16.dp),
+                    )
+                    StepButton("+", "Add one ${item.name}", filled = true, enabled = canAdd, onClick = onAdd)
+                }
+            }
+        }
+
+        if (line.note.isNotBlank()) {
             Text(
-                listOfNotNull("${formatMoney(item.price)} each", item.taxLabel).joinToString(" "),
+                "Note: ${line.note}",
                 fontSize = 12.sp,
-                color = Muted,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier
+                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Canvas)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(formatMoney(line.lineTotal), fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StepButton("−", "Remove one ${item.name}", filled = false, enabled = canRemove, onClick = onRemove)
-                Text(
-                    line.quantity.toString(),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.widthIn(min = 16.dp),
-                )
-                StepButton("+", "Add one ${item.name}", filled = true, enabled = canAdd, onClick = onAdd)
-            }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFEFEFEB)))
+        Row(Modifier.fillMaxWidth().height(44.dp)) {
+            LineAction(
+                label = if (line.note.isBlank()) "Add note" else "Edit note",
+                description = (if (line.note.isBlank()) "Add note for " else "Edit note for ") + item.name,
+                color = Ink,
+                enabled = canRemove,
+                onClick = onNote,
+                modifier = Modifier.weight(1f),
+            )
+            Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFFEFEFEB)))
+            LineAction(
+                label = "Remove item",
+                description = "Remove ${item.name} from the order",
+                color = BadRed,
+                enabled = canRemove,
+                onClick = onRemoveItem,
+                modifier = Modifier.weight(1f),
+            )
         }
+    }
+}
+
+@Composable
+private fun LineAction(
+    label: String,
+    description: String,
+    color: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(Color.White)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (enabled) color else Dot)
     }
 }
 

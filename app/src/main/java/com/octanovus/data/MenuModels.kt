@@ -15,12 +15,17 @@ data class MenuItem(
     val taxName: String?,
     val taxRatePercent: Double,
     val priceIncludesTax: Boolean,
-    val searchKey: String,
+    /** The item's search keywords (`search_key` on the desktop). Searched together with the name. */
+    val searchKey: String? = null,
 ) {
+    /** "GST 5%". Null when the item has no tax. */
+    val taxTitle: String?
+        get() = if (taxName.isNullOrBlank() || taxRatePercent <= 0.0) null
+        else "$taxName ${formatPercent(taxRatePercent)}%"
+
     /** "+ GST 5%" when the price excludes tax. Null when tax is already in the price. */
     val taxLabel: String?
-        get() = if (priceIncludesTax || taxName.isNullOrBlank() || taxRatePercent <= 0.0) null
-        else "+ $taxName ${formatPercent(taxRatePercent)}%"
+        get() = if (priceIncludesTax) null else taxTitle?.let { "+ $it" }
 }
 
 /** The menu reply. [lastError] is set when the desktop's last refresh failed, so the list may be stale. */
@@ -45,7 +50,7 @@ fun JSONObject.toMenu(): MenuData {
                 taxName = m.text("tax_name"),
                 taxRatePercent = m.optDouble("tax_rate_percent", 0.0).let { if (it.isNaN()) 0.0 else it },
                 priceIncludesTax = m.optBoolean("price_includes_tax", false),
-                searchKey = m.optString("search_key")
+                searchKey = m.text("search_key"),
             )
         }
     }

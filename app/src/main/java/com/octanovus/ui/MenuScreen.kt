@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +33,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +79,7 @@ fun MenuScreen(
     val cart by cartVm.state.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
+    var noteFor by remember { mutableStateOf<MenuItem?>(null) }
 
     LaunchedEffect(table.tableId) { cartVm.startFor(table) }
     LaunchedEffect(lifecycleOwner) {
@@ -89,7 +96,11 @@ fun MenuScreen(
             .background(Canvas),
     ) {
         Column(Modifier.fillMaxSize()) {
-            TableHeader("Restaurant menu", table.number, onBack)
+            TableHeader(
+                if (table.isTakeaway) "For Table ${table.deliverTo ?: "?"}" else "Restaurant menu",
+                table.number,
+                onBack,
+            )
             SearchBox(
                 query = menu.query,
                 onChange = menuVm::onQueryChange,
@@ -112,13 +123,26 @@ fun MenuScreen(
                         cart = cart,
                         onAdd = cartVm::add,
                         onRemove = cartVm::remove,
+                        onNote = { noteFor = it },
                         modifier = Modifier.weight(1f),
                     )
                 }
             }
         }
 
-        if (cart.totalQuantity > 0) {
+        noteFor?.let { item ->
+            val line = cart.lines[item.id]
+            if (line == null) noteFor = null
+            else NoteSheet(
+                itemName = item.name,
+                quantity = line.quantity,
+                initial = line.note,
+                onSave = { cartVm.setItemNote(item.id, it); noteFor = null },
+                onClose = { noteFor = null },
+            )
+        }
+
+        if (cart.totalQuantity > 0 && noteFor == null) {
             ViewOrderBar(
                 count = cart.totalQuantity,
                 onClick = onViewOrder,
@@ -152,7 +176,9 @@ internal fun TableHeader(title: String, tableNumber: String, onBack: () -> Unit)
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Table $tableNumber", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (tableNumber == TableInfo.TAKEAWAY_LABEL) "Takeaway" else "Table $tableNumber",
+                color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -162,7 +188,7 @@ private fun SearchBox(query: String, onChange: (String) -> Unit, onSearch: () ->
     OutlinedTextField(
         value = query,
         onValueChange = onChange,
-        placeholder = { Text("Search items") },
+        placeholder = { Text("Search by name or keyword") },
         singleLine = true,
         shape = RoundedCornerShape(24.dp),
         colors = OutlinedTextFieldDefaults.colors(
@@ -234,6 +260,7 @@ private fun ItemList(
     cart: CartState,
     onAdd: (MenuItem) -> Unit,
     onRemove: (String) -> Unit,
+    onNote: (MenuItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shown = menu.visibleItems
@@ -247,17 +274,20 @@ private fun ItemList(
         }
         return
     }
-    LazyColumn(
+    // Two tiles per row. Category names span the full width.
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
         modifier = modifier.fillMaxWidth(),
         // Space at the bottom so the last item is not hidden behind the View order bar.
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 100.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // With "All" or a search, items are grouped under their category name.
         val groups = if (menu.groupedByCategory) shown.groupBy { it.categoryName } else mapOf("" to shown)
         groups.forEach { (category, group) ->
             if (menu.groupedByCategory) {
-                item(key = "category-$category") {
+                item(key = "category-$category", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         category,
                         fontSize = 13.sp,
@@ -268,87 +298,163 @@ private fun ItemList(
                 }
             }
             items(group, key = { it.id }) { item ->
-                ItemRow(
+                ItemTile(
                     item = item,
                     quantity = cart.quantityOf(item.id),
+                    note = cart.lines[item.id]?.note.orEmpty(),
                     canAdd = cart.canAdd(item.id),
                     onAdd = { onAdd(item) },
                     onRemove = { onRemove(item.id) },
+                    onNote = { onNote(item) },
                 )
             }
         }
     }
 }
 
+/**
+ * One menu item. Tapping the tile adds one. The quantity shows as a badge, and the footer has a
+ * step-down button and an "Add note" button. Both footer buttons wait until the item is in the order.
+ */
 @Composable
-private fun ItemRow(
+private fun ItemTile(
     item: MenuItem,
     quantity: Int,
+    note: String,
     canAdd: Boolean,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
+    onNote: () -> Unit,
 ) {
-    Row(
+    val added = quantity > 0
+    val shape = RoundedCornerShape(16.dp)
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(shape)
             .background(Color.White)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .border(2.dp, if (added) Ink else Color.Transparent, shape),
     ) {
-        // Placeholder for the optional photo: the first letter on a pale circle.
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFE6E6E1)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(item.name.take(1).uppercase(), color = Muted, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        }
-
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = canAdd, onClick = onAdd)
+                    .semantics { contentDescription = "Add one ${item.name}" }
+                    .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+            ) {
                 VegMarker(item.isVeg)
                 Text(
                     item.name,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
+                    minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
-            }
-            Text(
-                listOfNotNull(formatMoney(item.price), item.taxLabel).joinToString(" "),
-                fontSize = 12.sp,
-                color = Muted,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-            item.description?.let {
                 Text(
-                    it,
+                    listOfNotNull(formatMoney(item.price), item.taxLabel).joinToString(" "),
                     fontSize = 12.sp,
                     color = Muted,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier.padding(top = 3.dp),
                 )
+//                item.description?.let {
+//                    Text(
+//                        it,
+//                        fontSize = 12.sp,
+//                        color = Muted,
+//                        maxLines = 2,
+//                        overflow = TextOverflow.Ellipsis,
+//                        modifier = Modifier.padding(top = 2.dp),
+//                    )
+//                }
+            }
+            if (added) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .height(26.dp)
+                        .widthIn(min = 28.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Ink)
+                        .padding(horizontal = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(quantity.toString(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StepButton("−", "Remove one ${item.name}", filled = false, enabled = quantity > 0, onClick = onRemove)
+        if (note.isNotBlank()) {
             Text(
-                quantity.toString(),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(min = 16.dp),
+                "Note: $note",
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Canvas)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
-            StepButton("+", "Add one ${item.name}", filled = true, enabled = canAdd, onClick = onAdd)
         }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TileButton(
+                label = "\u2212",
+                description = "Remove one ${item.name}",
+                enabled = added,
+                filled = false,
+                onClick = onRemove,
+                modifier = Modifier.width(44.dp),
+            )
+            TileButton(
+                label = if (note.isBlank()) "Note" else "Edit",
+                description = (if (note.isBlank()) "Add note for " else "Edit note for ") + item.name,
+                enabled = added,
+                filled = note.isNotBlank(),
+                onClick = onNote,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TileButton(
+    label: String,
+    description: String,
+    enabled: Boolean,
+    filled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val border = if (enabled) Ink else Color(0xFFE6E6E1)
+    val text = when {
+        !enabled -> Dot
+        filled -> Color.White
+        else -> Ink
+    }
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(shape)
+            .background(if (filled && enabled) Ink else if (enabled) Color.White else Pale)
+            .border(1.5.dp, border, shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = text, fontSize = if (label.length == 1) 20.sp else 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

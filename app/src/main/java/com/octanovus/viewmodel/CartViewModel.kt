@@ -18,7 +18,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** One line of the cart. The item is kept as it was when added, so the line survives a menu refresh. */
-data class CartLine(val item: MenuItem, val quantity: Int) {
+data class CartLine(val item: MenuItem, val quantity: Int, val note: String = "") {
     val lineTotal: Double get() = item.price * quantity
 }
 
@@ -28,6 +28,8 @@ data class TaxLine(val title: String, val amount: Double)
 data class CartState(
     val tableId: String? = null,
     val tableNumber: String = "",
+    /** Takeaway only: the table the order is delivered to. Sent in the order notes. */
+    val deliverTo: String? = null,
     /** Keyed by menu item id, in the order items were first added. */
     val lines: Map<String, CartLine> = emptyMap(),
     /** The "Additional instruction" for the whole order. Sent as `notes`. */
@@ -37,15 +39,15 @@ data class CartState(
     val customerPhone: String = "",
     /** Number of people at the table. Optional. */
     val occupants: Int? = null,
-    /** True once the waiter has filled in or skipped the customer details for this new order. */
-    val customerStepDone: Boolean = false,
 ) {
     /**
-     * The customer details screen shows once per new order: when the table is free and the waiter
-     * has not yet filled it in or skipped it. Extra rounds on an occupied table never show it.
+     * The customer details screen shows whenever a new order starts on a table with no orders
+     * placed, even if the waiter skipped it before without adding anything. It is not shown again
+     * while this table's cart already has items (the waiter is mid-order), nor for an extra round
+     * on an occupied table.
      */
     fun needsCustomerStep(table: TableInfo): Boolean =
-        table.startsNewOrder && !(tableId == table.tableId && customerStepDone)
+        table.startsNewOrder && !(tableId == table.tableId && lines.isNotEmpty())
 
     val totalQuantity: Int get() = lines.values.sumOf { it.quantity }
     fun quantityOf(menuItemId: String): Int = lines[menuItemId]?.quantity ?: 0
@@ -62,8 +64,8 @@ data class CartState(
     /** Tax on top of the price, only for items whose price excludes tax. One line per tax name and rate. */
     val taxLines: List<TaxLine>
         get() = lines.values
-            .filter { !it.item.priceIncludesTax && it.item.taxName != null }
-            .groupBy { it.item.taxName!! }
+            .filter { !it.item.priceIncludesTax && it.item.taxTitle != null }
+            .groupBy { it.item.taxTitle!! }
             .map { (title, group) ->
                 TaxLine(title, group.sumOf { it.lineTotal * it.item.taxRatePercent / 100.0 })
             }
@@ -73,7 +75,7 @@ data class CartState(
 }
 
 /** What the desktop confirmed after "Place order". */
-data class PlacedOrder(val orderNumber: String, val tableNumber: String)
+data class PlacedOrder(val orderNumber: String, val tableNumber: String, val deliverTo: String? = null)
 
 data class PlaceState(
     val placing: Boolean = false,
@@ -88,6 +90,10 @@ private const val SEND_OCCUPANTS = false
 const val MAX_LINES = 60
 const val MAX_QUANTITY = 99
 const val MAX_NOTES_LENGTH = 200
+const val MAX_ITEM_NOTE_LENGTH = 100
+
+/** The line the desktop reads back to show which table a takeaway is for. */
+fun takeawayNote(table: String) = "Takeaway for Table $table"
 
 /**
  * The order being built for one table. Shared by the menu, View order and placing the order.
@@ -113,7 +119,8 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startFor(table: TableInfo) {
         _state.update {
-            if (it.tableId == table.tableId) it else CartState(table.tableId, table.number)
+            if (it.tableId == table.tableId && it.deliverTo == table.deliverTo) it
+            else CartState(table.tableId, table.number, table.deliverTo)
         }
     }
 
@@ -121,7 +128,7 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { cart ->
             if (!cart.canAdd(item.id)) return@update cart
             val current = cart.lines[item.id]
-            val line = CartLine(current?.item ?: item, (current?.quantity ?: 0) + 1)
+            val line = CartLine(current?.item ?: item, (current?.quantity ?: 0) + 1, current?.note.orEmpty())
             cart.copy(lines = cart.lines + (item.id to line))
         }
         orderChanged()
@@ -136,7 +143,22 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
         orderChanged()
     }
 
-    /** Saves the guest details and marks the customer step done for this table's new order. */
+    /** Removes the whole line, whatever its quantity. */
+    fun removeLine(menuItemId: String) {
+        _state.update { it.copy(lines = it.lines - menuItemId) }
+        orderChanged()
+    }
+
+    /** Sets or clears the note on one line. One note covers the whole quantity. */
+    fun setItemNote(menuItemId: String, note: String) {
+        _state.update { cart ->
+            val line = cart.lines[menuItemId] ?: return@update cart
+            cart.copy(lines = cart.lines + (menuItemId to line.copy(note = note.trim().take(MAX_ITEM_NOTE_LENGTH))))
+        }
+        orderChanged()
+    }
+
+    /** Saves the guest details for this table's new order. */
     fun setCustomer(table: TableInfo, name: String, phone: String, occupants: Int?) {
         startFor(table)
         _state.update {
@@ -144,16 +166,15 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
                 customerName = name.trim(),
                 customerPhone = phone.trim(),
                 occupants = occupants,
-                customerStepDone = true,
             )
         }
         orderChanged()
     }
 
-    /** The waiter skipped the customer details. They won't be asked again for this order. */
+    /** The waiter skipped the customer details. Any details entered before are cleared. */
     fun skipCustomer(table: TableInfo) {
         startFor(table)
-        _state.update { it.copy(customerName = "", customerPhone = "", occupants = null, customerStepDone = true) }
+        _state.update { it.copy(customerName = "", customerPhone = "", occupants = null) }
         orderChanged()
     }
 
@@ -163,14 +184,14 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clear() {
-        _state.update { it.copy(lines = emptyMap(), notes = "", customerName = "", customerPhone = "", occupants = null, customerStepDone = false) }
+        _state.update { it.copy(lines = emptyMap(), notes = "", customerName = "", customerPhone = "", occupants = null) }
         orderChanged()
     }
 
     /** The waiter has seen the "Order sent" confirmation. */
     fun consumePlaced() = _place.update { it.copy(placed = null) }
 
-    /** Sends the cart to the desktop as a dine-in order, or as an extra round on an occupied table. */
+    /** Sends the cart to the desktop as a dine-in order, a takeaway order, or as an extra round on an occupied table. */
     fun placeOrder() {
         val cart = _state.value
         val tableId = cart.tableId ?: return
@@ -179,13 +200,13 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
         val id = requestId ?: UUID.randomUUID().toString().also { requestId = it }
         val items = JSONArray()
         cart.lines.values.forEach {
-            items.put(
-                JSONObject()
-                            .put("menuItemId", it.item.id)
-                            .put("quantity", it.quantity)
-                            .put("unitPrice", it.item.price)
-                            .put("totalPrice", it.quantity * it.item.price)
-            )
+            val line = JSONObject().put("menuItemId", it.item.id)
+                .put("quantity", it.quantity)
+                .put("unitPrice", it.item.price)
+                .put("totalPrice", it.quantity * it.item.price)
+                // PROPOSED: the desktop accepts an optional `notes` on each item.
+            if (it.note.isNotBlank()) line.put("notes", it.note)
+               items.put(line)
         }
         val isTakeaway = tableId == TableInfo.TAKEAWAY_ID
         // Same API for both. A takeaway order has its own order type and no table.
@@ -194,7 +215,12 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
             .put("items", items)
             .put("clientRequestId", id)
         if (!isTakeaway) body.put("tableId", tableId)
-        cart.notes.trim().takeIf { it.isNotEmpty() }?.let { body.put("notes", it) }
+        // A takeaway carries its table in the order notes (not in table_id), then the waiter's instruction.
+        val orderNotes = listOfNotNull(
+            if (isTakeaway) cart.deliverTo?.let(::takeawayNote) else null,
+            cart.notes.trim().takeIf { it.isNotEmpty() },
+        ).joinToString("\n")
+        if (orderNotes.isNotEmpty()) body.put("notes", orderNotes)
         cart.customerName.takeIf { it.isNotBlank() }?.let { body.put("customerName", it) }
         cart.customerPhone.takeIf { it.isNotBlank() }?.let { body.put("customerPhone", it) }
         // The order API has no field for the number of guests yet, so it stays on the phone.
@@ -217,11 +243,10 @@ class CartViewModel(app: Application) : AndroidViewModel(app) {
                             customerName = "",
                             customerPhone = "",
                             occupants = null,
-                            customerStepDone = false,
                         )
                     }
                     requestId = null
-                    _place.value = PlaceState(placed = PlacedOrder(orderNumber, cart.tableNumber))
+                    _place.value = PlaceState(placed = PlacedOrder(orderNumber, cart.tableNumber, cart.deliverTo))
                 }
                 is ApiResult.Err -> {
                     val notPaired = result.code == 401 ||

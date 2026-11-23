@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -234,7 +235,7 @@ private fun ServingCard(s: OrdersState) {
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Table $number", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (number == TableInfo.TAKEAWAY_LABEL) "Takeaway" else "Table $number", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -359,7 +360,12 @@ private fun TableCard(
             }
             Column(Modifier.weight(1f)) {
                 val place = group.floor.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                Text("Table ${group.tableNumber.orEmpty()}$place", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                val title = if (group.isTakeaway) {
+                    val first = group.orders.first()
+                    listOfNotNull("Takeaway", first.deliverTo?.let { "Table $it" }, "#${first.orderNumber}").joinToString(" · ")
+                }
+                else "Table ${group.tableNumber}$place"
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Text(summary, fontSize = 12.sp, color = Muted, modifier = Modifier.padding(top = 2.dp))
             }
             Text(if (expanded) "⌃" else "⌄", fontSize = 16.sp, color = Muted)
@@ -380,7 +386,8 @@ private fun TableCard(
                     ItemRow(order, item, s, onServe)
                 }
             }
-            Row(
+            // A takeaway order has no table to add a round to.
+            if (group.isTakeaway) Spacer(Modifier.height(10.dp)) else Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp),

@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppPrefs
-
 import com.octanovus.data.MenuItem
 import com.octanovus.data.toMenu
 import kotlinx.coroutines.delay
@@ -36,13 +35,14 @@ data class MenuState(
     /** A search looks through every category. Otherwise the chosen category (or all) shows. */
     val visibleItems: List<MenuItem>
         get() = when {
-            searching -> items.filter {
-                it.name.contains(
-                    query.trim(),
-                    ignoreCase = true
-                ) || it.searchKey.contains(query.trim(), ignoreCase = true)
+            searching -> {
+                val q = query.trim()
+                items.filter {
+                    it.name.contains(q, ignoreCase = true)
+                            ||
+                    it.searchKey?.contains(q, ignoreCase = true) == true
+                }
             }
-
             activeCategory == ALL_CATEGORIES -> items
             else -> items.filter { it.categoryName == activeCategory }
         }

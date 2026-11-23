@@ -28,20 +28,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.border
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.octanovus.data.NotificationHub
-import com.octanovus.viewmodel.AddTableState
-import com.octanovus.viewmodel.TablesState
+import com.octanovus.viewmodel.MyTable
+import com.octanovus.viewmodel.MyTablesState
 
 
 private val Scrim = Color(0x73000000)
@@ -115,60 +119,30 @@ private fun DrawerItem(label: String, highlighted: Boolean = false, onClick: () 
     }
 }
 
-/** The dashed tile at the end of the grid that opens "Add a table". */
-@Composable
-internal fun NewTableTile(onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(116.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .dashedBorder(Ink)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-    ) {
-        Text("+", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("New table", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
 /**
- * Bottom sheet to add a table to a floor. The waiter types the table number.
- * The floor is one that exists, or a new name typed in.
+ * Bottom sheet that starts a takeaway order. The waiter picks the table the order is delivered to
+ * from a dropdown of tables they have an active order on. A table is required.
  */
 @Composable
-internal fun AddTableSheet(
-    s: TablesState,
-    add: AddTableState,
+internal fun TakeawaySheet(
+    mine: MyTablesState,
     onClose: () -> Unit,
-    onSave: (number: String, floor: String, seats: Int) -> Unit,
+    onRetry: () -> Unit,
+    onContinue: (MyTable) -> Unit,
 ) {
     BackHandler(onBack = onClose)
-
-    val floors = s.floors
-    val startFloor = s.selectedFloor?.takeIf { it in floors } ?: floors.firstOrNull() ?: TablesState.DEFAULT_FLOOR
-    var number by remember { mutableStateOf("") }
-    var floor by remember { mutableStateOf(startFloor) }
-    var newFloor by remember { mutableStateOf(floors.isEmpty()) }
-    var floorDraft by remember { mutableStateOf(if (floors.isEmpty()) TablesState.DEFAULT_FLOOR else "") }
-    var seats by remember { mutableStateOf(4) }
-
-    val chosenFloor = (if (newFloor) floorDraft else floor).trim()
-    val clash = number.isNotBlank() && s.tables.any {
-        it.number.equals(number.trim(), ignoreCase = true) &&
-            it.floor.ifBlank { TablesState.DEFAULT_FLOOR }.equals(chosenFloor, ignoreCase = true)
-    }
-    val canSave = number.isNotBlank() && chosenFloor.isNotEmpty() && !clash && !add.busy
-    fun save() { if (canSave) onSave(number, chosenFloor, seats) }
+    var chosenId by rememberSaveable { mutableStateOf<String?>(null) }
+    var open by remember { mutableStateOf(false) }
+    // Keep the choice only while that table is still in the list.
+    val chosen = mine.tables.firstOrNull { it.tableId == chosenId }
+        ?: mine.tables.singleOrNull()
 
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Scrim)
-                .clickable(enabled = !add.busy, onClick = onClose),
+                .clickable(onClick = onClose),
         )
         Column(
             modifier = Modifier
@@ -176,111 +150,74 @@ internal fun AddTableSheet(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(Color.White)
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Add a table", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-
-            OutlinedTextField(
-                value = number,
-                onValueChange = { number = it.take(10) },
-                label = { Text("Table number") },
-                singleLine = true,
-                isError = clash,
-                supportingText = if (clash) {
-                    { Text("Table ${number.trim()} already exists on $chosenFloor.") }
-                } else null,
-                shape = RoundedCornerShape(12.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { save() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Text("Floor", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                floors.forEach { name ->
-                    SheetChip(name, selected = !newFloor && floor == name) {
-                        newFloor = false
-                        floor = name
-                    }
-                }
-                SheetChip("+ New floor", selected = newFloor) { newFloor = true }
-            }
-            if (newFloor) {
-                OutlinedTextField(
-                    value = floorDraft,
-                    onValueChange = { floorDraft = it.take(30) },
-                    label = { Text("Floor name") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
+            Column {
+                Text("New takeaway order", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Billed separately from the table's dine-in order.",
+                    fontSize = 12.sp,
+                    color = Muted,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("Seats", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    StepperButton("−", enabled = seats > 1) { seats -= 1 }
-                    Text(seats.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    StepperButton("+", enabled = seats < 99) { seats += 1 }
+            when {
+                mine.loading -> Text("Finding your tables...", color = Muted, fontSize = 14.sp)
+                mine.error != null -> {
+                    Text(mine.error, color = BadRed, fontSize = 13.sp)
+                    OutlineButton("Try again", enabled = true, onClick = onRetry, modifier = Modifier.fillMaxWidth())
+                }
+                mine.tables.isEmpty() -> Text(
+                    "You have no active tables. Take a dine-in order first.",
+                    color = Muted,
+                    fontSize = 14.sp,
+                )
+                else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Deliver to table", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Box {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.5.dp, if (open) Ink else Color(0xFFD9D9D4), RoundedCornerShape(14.dp))
+                                .clickable { open = true }
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                chosen?.label ?: "Choose a table",
+                                fontSize = 16.sp,
+                                color = if (chosen == null) Muted else Ink,
+                            )
+                            Text(if (open) "⌃" else "⌄", fontSize = 14.sp)
+                        }
+                        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                            mine.tables.forEach { table ->
+                                DropdownMenuItem(
+                                    text = { Text(table.label, fontSize = 15.sp) },
+                                    onClick = { chosenId = table.tableId; open = false },
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "Only tables where you have an active order.",
+                        fontSize = 12.sp,
+                        color = Muted,
+                    )
                 }
             }
 
-            add.error?.let { Text(it, color = BadRed, fontSize = 13.sp) }
-
-            Button(
-                onClick = ::save,
-                enabled = canSave,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Ink, contentColor = Color.White),
-            ) {
-                Text(if (add.busy) "Adding..." else "Add table", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            }
+            PrimaryButton(
+                label = "Continue to menu",
+                enabled = chosen != null && !mine.loading,
+                onClick = { chosen?.let(onContinue) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
-    }
-}
-
-@Composable
-private fun SheetChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(if (selected) Ink else Pale)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = if (selected) Color.White else Ink,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
-    }
-}
-
-@Composable
-private fun StepperButton(glyph: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(if (enabled) Ink else Pale)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(glyph, color = if (enabled) Color.White else Muted, fontSize = 20.sp)
     }
 }

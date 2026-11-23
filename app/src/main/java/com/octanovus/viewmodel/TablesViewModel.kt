@@ -9,6 +9,7 @@ import com.octanovus.data.AppPrefs
 import com.octanovus.data.OverdueLevel
 import com.octanovus.data.TableInfo
 import com.octanovus.data.toLevels
+import com.octanovus.data.toMyOrders
 import com.octanovus.data.toTables
 
 import kotlinx.coroutines.delay
@@ -17,10 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import java.time.Instant
-import kotlin.collections.filter
-import kotlin.collections.map
 
 data class TablesState(
     val tables: List<TableInfo> = emptyList(),
@@ -48,12 +46,15 @@ data class TablesState(
     }
 }
 
-/** Progress of "Add table". */
-data class AddTableState(
-    val busy: Boolean = false,
+/** A table the waiter has an active order on. The choices when starting a takeaway. */
+data class MyTable(val tableId: String, val number: String, val floor: String) {
+    val label: String get() = if (floor.isBlank()) "Table $number" else "Table $number \u00B7 $floor"
+}
+
+data class MyTablesState(
+    val loading: Boolean = false,
+    val tables: List<MyTable> = emptyList(),
     val error: String? = null,
-    /** The desktop saved the table. The sheet closes. */
-    val done: Boolean = false,
 )
 
 /**
@@ -70,43 +71,34 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(TablesState())
     val state: StateFlow<TablesState> = _state.asStateFlow()
 
-    private val _add = MutableStateFlow(AddTableState())
-    val add: StateFlow<AddTableState> = _add.asStateFlow()
-
-    fun resetAdd() { _add.value = AddTableState() }
+    private val _mine = MutableStateFlow(MyTablesState())
+    val mine: StateFlow<MyTablesState> = _mine.asStateFlow()
 
     /**
-     * Adds a table to a floor.
-     * PROPOSED (the desktop team is exposing it): POST /api/tables { "tableNumber", "floor", "capacity" }.
-     * 201 on success. 409 or 422 when the number is taken or the body is not valid.
+     * Finds the tables this waiter has an active order on, from GET /api/orders/mine.
+     * Tables that are free again (for example completed and billed) are left out.
      */
-    fun addTable(number: String, floor: String, seats: Int) {
-        if (_add.value.busy) return
-        val body = JSONObject()
-            .put("tableNumber", number.trim())
-            .put("floor", floor.trim())
-            .put("capacity", seats)
+    fun loadMyTables() {
         viewModelScope.launch {
-            _add.value = AddTableState(busy = true)
-            when (val result = api.protectedPost("/api/tables", body)) {
+            _mine.value = MyTablesState(loading = true)
+            when (val result = api.protectedGet("/api/orders/mine")) {
                 is ApiResult.Ok -> {
-                    etag = null
-                    refresh()
-                    _add.value = AddTableState(done = true)
+                    val grid = _state.value.tables.associateBy { it.tableId }
+                    val tables = result.value.toMyOrders()
+                        .filter { !it.isTakeaway }
+                        .distinctBy { it.tableId }
+                        .filter { grid[it.tableId]?.isAvailable != true }
+                        .map { MyTable(it.tableId, it.tableNumber, it.floor) }
+                        .sortedWith(compareBy<MyTable>({ it.number.toIntOrNull() ?: Int.MAX_VALUE }, { it.number }))
+                    _mine.value = MyTablesState(tables = tables)
                 }
                 is ApiResult.Err -> {
                     if (result.code == 401) {
                         prefs.clearPairing()
                         _state.update { it.copy(unauthorised = true) }
-                        _add.value = AddTableState()
+                        _mine.value = MyTablesState()
                     } else {
-                        val message = when (result.code) {
-                            409 -> "Table ${number.trim()} already exists on that floor."
-                            429 -> "Too many requests. Wait a moment, then try again."
-                            503 -> "Desktop app is not ready."
-                            else -> result.message
-                        }
-                        _add.value = AddTableState(error = message)
+                        _mine.value = MyTablesState(error = result.message)
                     }
                 }
             }

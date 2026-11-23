@@ -4,7 +4,6 @@ import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONException
 import org.json.JSONObject
@@ -63,12 +62,10 @@ class ApiClient(private val prefs: AppPrefs) {
             .put("deviceName", deviceName)
             .put("email", email)
             .put("password", password)
-            .toString()
-            .toRequestBody(jsonMedia)
         return execute {
             Request.Builder()
                 .url(endpoint("/api/signin"))
-                .post(body)
+                .post(body.toString().toRequestBody(jsonMedia))
                 .build()
         }
     }
@@ -140,10 +137,7 @@ class ApiClient(private val prefs: AppPrefs) {
                 }
             } catch (e: IOException) {
                 Log.e("CaptainApi", "Request to ${prefs.serverUrl} failed", e)
-                ApiResult.Err(
-                    "Cannot reach the desktop at ${prefs.serverUrl}. " +
-                        "Cause: ${e.javaClass.simpleName}: ${e.message ?: "no message"}.",
-                )
+                ApiResult.Err(unreachableMessage(e))
             }
         }
     }
@@ -252,7 +246,6 @@ class ApiClient(private val prefs: AppPrefs) {
             .header("Authorization", "Bearer $token")
         pinHeader?.let { builder.header("X-Captain-Pin", it) }
         Session.unlockToken?.let { builder.header("X-Unlock-Token", it) }
-
         return builder
     }
 
@@ -279,12 +272,20 @@ class ApiClient(private val prefs: AppPrefs) {
                 }
             } catch (e: IOException) {
                 Log.e("CaptainApi", "Request to ${prefs.serverUrl} failed", e)
-                ApiResult.Err(
-                    "Cannot reach the desktop at ${prefs.serverUrl}. " +
-                            "Cause: ${e.javaClass.simpleName}: ${e.message ?: "no message"}. " +
-                            "Check the address and that the desktop app is running on the same Wi-Fi.",
-                )
+                ApiResult.Err(unreachableMessage(e))
             }
+        }
+
+    /**
+     * Plain-language message for a failed connection. The technical cause stays in the log.
+     */
+    private fun unreachableMessage(e: IOException): String =
+        if (e is java.net.SocketTimeoutException) {
+            "The restaurant system is taking too long to respond. Please try again in a moment."
+        } else {
+            "Can't connect to the restaurant system. " +
+                "Check that your phone is on the restaurant Wi-Fi (and flight mode is off), then tap Retry. " +
+                "If it still doesn't work, ask your manager to check that the desktop app is running."
         }
 
     /**

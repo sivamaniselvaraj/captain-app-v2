@@ -1,6 +1,5 @@
 package com.octanovus.ui
 
-import android.graphics.Color.parseColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

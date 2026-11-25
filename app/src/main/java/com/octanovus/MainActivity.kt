@@ -36,10 +36,10 @@ import com.octanovus.ui.NotificationsScreen
 import com.octanovus.ui.PairScreen
 import com.octanovus.ui.SetPinScreen
 import com.octanovus.ui.SplashScreen
-import com.octanovus.ui.TablesScreen
 import com.octanovus.ui.ViewOrderScreen
 import com.octanovus.viewmodel.PlacedOrder
 import com.octanovus.ui.OrderSentScreen
+import com.octanovus.ui.TablesScreen
 import com.octanovus.viewmodel.CartViewModel
 import com.octanovus.viewmodel.SplashViewModel
 import com.octanovus.viewmodel.TablesViewModel
@@ -125,6 +125,16 @@ class MainActivity : ComponentActivity() {
                         val tablesVm: TablesViewModel = viewModel()
                         val splashVm: SplashViewModel = viewModel()
                         var pinNotice by remember { mutableStateOf<String?>(null) }
+                        // The table's menu a takeaway was started from, so Back returns to it.
+                        var takeawayFrom by remember { mutableStateOf<TableInfo?>(null) }
+                        // Tables this waiter has an order on: the bag button on the menu needs it.
+                        val myTables by tablesVm.mine.collectAsState()
+                        val menuTable = selectedTable
+                        LaunchedEffect(stage, menuTable?.tableId) {
+                            if (stage == Stage.MENU && menuTable != null && !menuTable.isTakeaway) {
+                                tablesVm.loadMyTables()
+                            }
+                        }
 
                         // The desktop asked for the PIN again (idle too long): go to PIN login with a message.
                         val pinExpired by Session.expired.collectAsState()
@@ -193,6 +203,7 @@ class MainActivity : ComponentActivity() {
                             Stage.PIN_LOGIN -> SplashScreen(
                                 notice = pinNotice,
                                 onSignedIn = { pinNotice = null; stage = Stage.TABLES },
+                                onNeedsPinSetup = { stage = Stage.SET_PIN },
                                 onUnpaired = {
                                     notice = REMOVED_NOTICE
                                     stage = Stage.PAIR
@@ -212,7 +223,23 @@ class MainActivity : ComponentActivity() {
                             Stage.MENU -> selectedTable?.let { table ->
                                 MenuScreen(
                                     table = table,
-                                    onBack = { stage = Stage.TABLES },
+                                    onBack = {
+                                        val from = takeawayFrom
+                                        if (table.isTakeaway && from != null) {
+                                            // Back from a takeaway returns to that table's own menu.
+                                            takeawayFrom = null
+                                            selectedTable = from
+                                        } else {
+                                            takeawayFrom = null
+                                            stage = Stage.TABLES
+                                        }
+                                    },
+                                    takeawayAllowed = myTables.tables.any { it.tableId == table.tableId },
+                                    onStartTakeaway = {
+                                        takeawayFrom = table
+                                        selectedTable = TableInfo.takeaway(table.number)
+                                        customerReturn = Stage.MENU
+                                    },
                                     onViewOrder = { stage = Stage.VIEW_ORDER },
                                     onUnpaired = {
                                         notice = REMOVED_NOTICE
@@ -264,12 +291,6 @@ class MainActivity : ComponentActivity() {
                                 // Customer details are asked for a new order on a table with no orders.
                                 onTableSelected = ::openTable,
                                 onMyOrders = { stage = Stage.MY_ORDERS },
-                                onNewTakeaway = { deliverTo ->
-                                    // Takeaway reuses the menu and View order. The table it is for goes in the order notes.
-                                    selectedTable = TableInfo.takeaway(deliverTo)
-                                    customerReturn = Stage.MENU
-                                    stage = Stage.MENU
-                                },
                                 onNotifications = {
                                     notificationsBack = Stage.TABLES
                                     stage = Stage.NOTIFICATIONS

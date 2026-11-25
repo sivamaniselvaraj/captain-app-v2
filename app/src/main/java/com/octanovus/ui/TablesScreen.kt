@@ -66,16 +66,13 @@ private val CompletedBlue = Color(0xFF34495E)
 fun TablesScreen(
     onTableSelected: (TableInfo) -> Unit,
     onMyOrders: () -> Unit,
-    onNewTakeaway: (deliverTo: String) -> Unit,
     onNotifications: () -> Unit,
     onProfile: () -> Unit,
     onUnpaired: () -> Unit,
     vm: TablesViewModel = viewModel(),
 ) {
     val s by vm.state.collectAsState()
-    val mine by vm.mine.collectAsState()
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
-    var takeawayOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val userName = remember { AppPrefs(context).pairedUserName }
 
@@ -136,26 +133,11 @@ fun TablesScreen(
         MenuDrawer(
             userName = userName,
             onClose = { drawerOpen = false },
-            onNewTakeaway = {
-                drawerOpen = false
-                takeawayOpen = true
-                vm.loadMyTables()
-            },
             onMyOrders = { drawerOpen = false; onMyOrders() },
             onNotifications = { drawerOpen = false; onNotifications() },
         )
     }
-    if (takeawayOpen) {
-        TakeawaySheet(
-            mine = mine,
-            onClose = { takeawayOpen = false },
-            onRetry = vm::loadMyTables,
-            onContinue = { table ->
-                takeawayOpen = false
-                onNewTakeaway(table.number)
-            },
-        )
-    }
+
     }
 }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Divider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -72,6 +74,9 @@ fun MenuScreen(
     onBack: () -> Unit,
     onViewOrder: () -> Unit,
     onUnpaired: () -> Unit,
+    /** True when this waiter already has an order on this table, so a takeaway can be started for it. */
+    takeawayAllowed: Boolean = false,
+    onStartTakeaway: () -> Unit = {},
     menuVm: MenuViewModel = viewModel(),
     cartVm: CartViewModel = viewModel(),
 ) {
@@ -80,6 +85,7 @@ fun MenuScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
     var noteFor by remember { mutableStateOf<MenuItem?>(null) }
+    var askTakeaway by remember { mutableStateOf(false) }
 
     LaunchedEffect(table.tableId) { cartVm.startFor(table) }
     LaunchedEffect(lifecycleOwner) {
@@ -100,6 +106,7 @@ fun MenuScreen(
                 if (table.isTakeaway) "For Table ${table.deliverTo ?: "?"}" else "Restaurant menu",
                 table.number,
                 onBack,
+                onTakeaway = if (takeawayAllowed && !table.isTakeaway) ({ askTakeaway = true }) else null,
             )
             SearchBox(
                 query = menu.query,
@@ -142,7 +149,16 @@ fun MenuScreen(
             )
         }
 
-        if (cart.totalQuantity > 0 && noteFor == null) {
+        if (askTakeaway) {
+            TakeawayConfirmSheet(
+                tableNumber = table.number,
+                dineInItems = cart.totalQuantity,
+                onStart = { askTakeaway = false; onStartTakeaway() },
+                onClose = { askTakeaway = false },
+            )
+        }
+
+        if (cart.totalQuantity > 0 && noteFor == null && !askTakeaway) {
             ViewOrderBar(
                 count = cart.totalQuantity,
                 onClick = onViewOrder,
@@ -153,7 +169,7 @@ fun MenuScreen(
 }
 
 @Composable
-internal fun TableHeader(title: String, tableNumber: String, onBack: () -> Unit) {
+internal fun TableHeader(title: String, tableNumber: String, onBack: () -> Unit, onTakeaway: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -179,6 +195,19 @@ internal fun TableHeader(title: String, tableNumber: String, onBack: () -> Unit)
             Text(
                 if (tableNumber == TableInfo.TAKEAWAY_LABEL) "Takeaway" else "Table $tableNumber",
                 color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+        if (onTakeaway != null) {
+            Box(
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(1.5.dp, Ink, CircleShape)
+                    .clickable(onClick = onTakeaway)
+                    .semantics { contentDescription = "Takeaway for Table $tableNumber" },
+                contentAlignment = Alignment.Center,
+            ) { BagIcon() }
         }
     }
 }
@@ -314,7 +343,7 @@ private fun ItemList(
 
 /**
  * One menu item. Tapping the tile adds one. The quantity shows as a badge, and the footer has a
- * step-down button and an "Add note" button. Both footer buttons wait until the item is in the order.
+ * two equal quiet buttons (minus and Note). They are faint until the item is in the order.
  */
 @Composable
 private fun ItemTile(
@@ -341,17 +370,18 @@ private fun ItemTile(
                     .fillMaxWidth()
                     .clickable(enabled = canAdd, onClick = onAdd)
                     .semantics { contentDescription = "Add one ${item.name}" }
-                    .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+                    .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 8.dp),
             ) {
                 VegMarker(item.isVeg)
                 Text(
                     item.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 21.sp,
                     minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(
                     listOfNotNull(formatMoney(item.price), item.taxLabel).joinToString(" "),
@@ -391,70 +421,60 @@ private fun ItemTile(
             Text(
                 "Note: $note",
                 fontSize = 11.sp,
+                color = Muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Canvas)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(start = 14.dp, end = 14.dp, bottom = 6.dp)
+                    .fillMaxWidth(),
             )
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        // Footer on every tile: two equal halves. Faint until the item is in the order.
+        Divider(color = Color(0xFFEFEFEB), thickness = 1.dp)
+        Row(modifier = Modifier.fillMaxWidth().height(44.dp)) {
             TileButton(
                 label = "\u2212",
                 description = "Remove one ${item.name}",
                 enabled = added,
-                filled = false,
                 onClick = onRemove,
-                modifier = Modifier.width(44.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
             )
+            Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFFEFEFEB)))
             TileButton(
                 label = if (note.isBlank()) "Note" else "Edit",
                 description = (if (note.isBlank()) "Add note for " else "Edit note for ") + item.name,
                 enabled = added,
-                filled = note.isNotBlank(),
                 onClick = onNote,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
             )
         }
     }
 }
 
+/** Quiet footer button: no border or fill. Grey text, very faint until the item is added. */
 @Composable
 private fun TileButton(
     label: String,
     description: String,
     enabled: Boolean,
-    filled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(12.dp)
-    val border = if (enabled) Ink else Color(0xFFE6E6E1)
-    val text = when {
-        !enabled -> Dot
-        filled -> Color.White
-        else -> Ink
-    }
     Box(
         modifier = modifier
-            .height(44.dp)
-            .clip(shape)
-            .background(if (filled && enabled) Ink else if (enabled) Color.White else Pale)
-            .border(1.5.dp, border, shape)
             .clickable(enabled = enabled, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = text, fontSize = if (label.length == 1) 20.sp else 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            label,
+            color = if (enabled) Muted else Color(0xFFC9C9C3),
+            fontSize = if (label.length == 1) 22.sp else 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 

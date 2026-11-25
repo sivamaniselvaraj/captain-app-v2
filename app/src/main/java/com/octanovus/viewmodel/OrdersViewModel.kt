@@ -6,13 +6,18 @@ import androidx.lifecycle.viewModelScope
 import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppPrefs
+import com.octanovus.data.LiveUpdates
 import com.octanovus.data.MyOrder
 import com.octanovus.data.OrderStep
 import com.octanovus.data.OverdueLevel
+import com.octanovus.data.ServerClock
 import com.octanovus.data.toLevels
 import com.octanovus.data.toMyOrders
 import com.octanovus.data.toSteps
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -123,15 +128,24 @@ class OrdersViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissActionError() = _state.update { it.copy(actionError = null) }
 
     /** Polls every 5 seconds until the calling coroutine is cancelled (screen hidden). */
-    suspend fun pollLoop() {
+    suspend fun pollLoop() = coroutineScope {
+        // A live "orders" event reloads at once. The poll below is the safety net.
+        launch { LiveUpdates.reloadOn(LiveUpdates.ORDERS) { refresh() } }
         while (true) {
-            delay(refresh())
+            LiveUpdates.pause(refresh())
         }
     }
 
-    /** One refresh. Returns how many milliseconds to wait before the next one. */
-    suspend fun refresh(): Long {
-        if (_state.value.steps.isEmpty() || _state.value.levels.isEmpty()) loadThresholds()
+    private val refreshLock = Mutex()
+    private var thresholdsAt = 0L
+
+    /** One refresh. Returns how many milliseconds to wait before the next one (when not live). */
+    suspend fun refresh(): Long = refreshLock.withLock { doRefresh() }
+
+    private suspend fun doRefresh(): Long {
+        if (_state.value.steps.isEmpty() || _state.value.levels.isEmpty() ||
+            System.currentTimeMillis() - thresholdsAt > 60_000L
+        ) loadThresholds()
 
         return when (val result = api.getIfChanged("/api/orders/mine", etag)) {
             is ApiResult.Ok -> {
@@ -141,14 +155,13 @@ class OrdersViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         // 304: keep the list we have.
                         orders = reply.json?.toMyOrders() ?: it.orders,
-                        now = Instant.now(),
+                        now = ServerClock.now(),
                         loaded = true,
                         error = null,
                     )
                 }
                 POLL_MS
             }
-
             is ApiResult.Err -> {
                 if (result.code == 401) {
                     prefs.clearPairing()
@@ -162,8 +175,8 @@ class OrdersViewModel(app: Application) : AndroidViewModel(app) {
                     500 -> "Something went wrong on the desktop."
                     else -> result.message
                 }
-                _state.update { it.copy(error = message, now = Instant.now()) }
-                if (result.code == 429) RATE_LIMIT_WAIT_MS else POLL_MS
+                _state.update { it.copy(error = message, now = ServerClock.now()) }
+                if (result.code == 429) (result.retryAfterSeconds?.times(1000L) ?: RATE_LIMIT_WAIT_MS) else POLL_MS
             }
         }
     }
@@ -202,6 +215,8 @@ class OrdersViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadThresholds() {
         val result = api.protectedGet("/api/overdue-thresholds")
         if (result is ApiResult.Ok) {
+            thresholdsAt = System.currentTimeMillis()
+            ServerClock.sync(result.value.optString("serverTime"))
             _state.update { it.copy(levels = result.value.toLevels(), steps = result.value.toSteps()) }
         }
     }

@@ -19,6 +19,7 @@ import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppNotification
 import com.octanovus.data.AppPrefs
+import com.octanovus.data.LiveUpdates
 import com.octanovus.data.NotificationHub
 import com.octanovus.data.OrderStep
 import com.octanovus.data.Session
@@ -116,8 +117,11 @@ class EventService : Service() {
                 onOpen = {
                     NotificationHub.setConnection(NotificationHub.Connection.CONNECTED)
                     updateOngoing("Connected to desktop")
+                    // Reload the visible screen once, in case something changed while disconnected.
+                    LiveUpdates.onConnected()
                 },
                 onNotification = { handle(NotificationHub.receive(listOf(it)), alert = true) },
+                onChanged = LiveUpdates::onChanged,
             )
             // The desktop ends the stream when the device is revoked.
             if (result is ApiResult.Err && result.code == 401) return authFailed()
@@ -234,8 +238,8 @@ class EventService : Service() {
 
     private fun canPostNotifications(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun manager() = getSystemService(NotificationManager::class.java)
 

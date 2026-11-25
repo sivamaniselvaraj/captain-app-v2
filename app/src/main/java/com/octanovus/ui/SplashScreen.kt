@@ -43,6 +43,7 @@ import com.octanovus.viewmodel.SplashViewModel
 fun SplashScreen(
     onSignedIn: () -> Unit = {},
     onUnpaired: () -> Unit = {},
+    onNeedsPinSetup: () -> Unit = {},
     notice: String? = null,
     vm: SplashViewModel = viewModel(),
 ) {
@@ -54,6 +55,10 @@ fun SplashScreen(
 
     LaunchedEffect(s.revoked) {
         if (s.revoked) onUnpaired()
+    }
+
+    LaunchedEffect(s.needsPinSetup) {
+        if (s.needsPinSetup) onNeedsPinSetup()
     }
 
     Column(
@@ -70,12 +75,14 @@ fun SplashScreen(
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
         )
-        Text(
-            text = "Restaurant name",
-            fontSize = 18.sp,
-            color = Muted,
-            textAlign = TextAlign.Center,
-        )
+        if (s.restaurantName.isNotBlank()) {
+            Text(
+                text = s.restaurantName,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+        }
 
         notice?.let {
             Text(it, color = BadRed, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)

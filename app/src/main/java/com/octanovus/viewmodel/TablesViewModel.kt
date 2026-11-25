@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppPrefs
+import com.octanovus.data.LiveUpdates
 import com.octanovus.data.OverdueLevel
+import com.octanovus.data.ServerClock
 import com.octanovus.data.TableInfo
 import com.octanovus.data.toLevels
 import com.octanovus.data.toMyOrders
 import com.octanovus.data.toTables
+import kotlinx.coroutines.coroutineScope
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +21,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 
 data class TablesState(
@@ -30,6 +35,8 @@ data class TablesState(
     val error: String? = null,
     /** The desktop rejected the device token. The app goes back to pairing. */
     val unauthorised: Boolean = false,
+    /** The desktop reports mode "offline" (no internet there). Ordering still works. */
+    val offlineMode: Boolean = false,
 ) {
     val floors: List<String> get() = tables.map { it.floor.ifBlank { DEFAULT_FLOOR } }.distinct()
     /** The chosen floor, or [ALL_FLOORS]. Shows all tables until a floor is chosen. */
@@ -108,15 +115,39 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
     fun selectFloor(floor: String) = _state.update { it.copy(selectedFloor = floor) }
 
     /** Polls every 3 seconds until the calling coroutine is cancelled. */
-    suspend fun pollLoop() {
+    suspend fun pollLoop() = coroutineScope {
+        // A live "tables" event reloads at once. The poll below is the safety net.
+        launch { LiveUpdates.reloadOn(LiveUpdates.TABLES) { refresh() } }
+        // A new round changes a table's total, so "orders" events reload the grid too.
+        launch { LiveUpdates.reloadOn(LiveUpdates.ORDERS) { refresh() } }
         while (true) {
-            delay(refresh())
+            LiveUpdates.pause(refresh())
         }
     }
 
-    /** One refresh. Returns how many milliseconds to wait before the next one. */
-    suspend fun refresh(): Long {
-        if (_state.value.levels.isEmpty()) loadLevels()
+    private val refreshLock = Mutex()
+    private var healthCheckedAt = 0L
+    private var levelsLoadedAt = 0L
+    private fun now() = System.currentTimeMillis()
+
+    /** One refresh. Returns how many milliseconds to wait before the next one (when not live). */
+    suspend fun refresh(): Long = refreshLock.withLock { doRefresh() }
+
+    /** GET /api/health every 10 s. Its "mode" is "offline" when the desktop has no internet. */
+    private suspend fun checkMode() {
+        val now = System.currentTimeMillis()
+        if (now - healthCheckedAt < HEALTH_EVERY_MS) return
+        healthCheckedAt = now
+        val result = api.health()
+        if (result is ApiResult.Ok) {
+            val offline = result.value.optString("mode") == "offline"
+            _state.update { it.copy(offlineMode = offline) }
+        }
+    }
+
+    private suspend fun doRefresh(): Long {
+        if (_state.value.levels.isEmpty() || now() - levelsLoadedAt > LEVELS_EVERY_MS) loadLevels()
+        checkMode()
 
         return when (val result = api.getIfChanged("/api/tables", etag)) {
             is ApiResult.Ok -> {
@@ -126,7 +157,7 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         // 304: keep the list we have.
                         tables = reply.json?.toTables() ?: it.tables,
-                        now = Instant.now(),
+                        now = ServerClock.now(),
                         loaded = true,
                         error = null,
                     )
@@ -147,8 +178,8 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
                     else -> result.message
                 }
                 // Keep the last tables on screen and show the problem above them.
-                _state.update { it.copy(error = message, now = Instant.now()) }
-                if (result.code == 429) RATE_LIMIT_WAIT_MS else POLL_MS
+                _state.update { it.copy(error = message, now = ServerClock.now()) }
+                if (result.code == 429) (result.retryAfterSeconds?.times(1000L) ?: RATE_LIMIT_WAIT_MS) else POLL_MS
             }
         }
     }
@@ -157,6 +188,8 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadLevels() {
         val result = api.protectedGet("/api/overdue-thresholds")
         if (result is ApiResult.Ok) {
+            levelsLoadedAt = now()
+            ServerClock.sync(result.value.optString("serverTime"))
             val levels = result.value.toLevels()
             _state.update { it.copy(levels = levels) }
         }
@@ -165,5 +198,7 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         private const val POLL_MS = 3_000L
         private const val RATE_LIMIT_WAIT_MS = 10_000L
+        private const val HEALTH_EVERY_MS = 10_000L
+        private const val LEVELS_EVERY_MS = 60_000L
     }
 }

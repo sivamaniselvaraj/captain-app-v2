@@ -17,6 +17,8 @@ data class MenuItem(
     val priceIncludesTax: Boolean,
     /** The item's search keywords (`search_key` on the desktop). Searched together with the name. */
     val searchKey: String? = null,
+    /** `category_sort_order` on the desktop. Lowest first; items without one come last. */
+    val categorySortOrder: Int = Int.MAX_VALUE,
 ) {
     /** "GST 5%". Null when the item has no tax. */
     val taxTitle: String?
@@ -37,6 +39,8 @@ fun JSONObject.toMenu(): MenuData {
     if (array != null) {
         for (i in 0 until array.length()) {
             val m = array.optJSONObject(i) ?: continue
+            // Inactive or unavailable items are not shown.
+            if (!m.optBoolean("is_active", true) || !m.optBoolean("is_available", true)) continue
             val id = m.text("id") ?: continue
             raw += MenuItem(
                 id = id,
@@ -51,13 +55,20 @@ fun JSONObject.toMenu(): MenuData {
                 taxRatePercent = m.optDouble("tax_rate_percent", 0.0).let { if (it.isNaN()) 0.0 else it },
                 priceIncludesTax = m.optBoolean("price_includes_tax", false),
                 searchKey = m.text("search_key"),
+                categorySortOrder = if (m.isNull("category_sort_order") || !m.has("category_sort_order")) Int.MAX_VALUE
+                else m.optInt("category_sort_order", Int.MAX_VALUE),
             )
         }
     }
-    // Categories keep the order they first appear in. Items follow sort_order inside a category.
-    val categoryOrder = raw.map { it.categoryName }.distinct()
+    // Categories follow category_sort_order (lowest first, none last), then their name.
+    // Items follow their name inside a category.
+    val categoryOrder = raw
+        .groupBy { it.categoryName }
+        .entries
+        .sortedWith(compareBy({ e -> e.value.minOf { it.categorySortOrder } }, { e -> e.key.lowercase() }))
+        .map { it.key }
     val sorted = raw.sortedWith(
-        compareBy<MenuItem>({ categoryOrder.indexOf(it.categoryName) }, { it.sortOrder }, { it.name.lowercase() })
+        compareBy<MenuItem>({ categoryOrder.indexOf(it.categoryName) }, { it.name.lowercase() })
     )
     return MenuData(sorted, text("lastError"))
 }

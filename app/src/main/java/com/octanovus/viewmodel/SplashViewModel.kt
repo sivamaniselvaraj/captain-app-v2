@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import com.octanovus.data.ApiClient
 import com.octanovus.data.ApiResult
 import com.octanovus.data.AppPrefs
+import com.octanovus.data.Money
 
 data class SplashState(
     /** Saved desktop address, split for display and editing. */
@@ -31,7 +32,10 @@ data class SplashState(
     val signedInAs: String? = null,
     /** The desktop no longer accepts this device. The app goes back to pairing. */
     val revoked: Boolean = false,
-    val tokenHash: String = "",
+    /** The desktop has no PIN for this phone yet: the app goes to "Create your PIN". */
+    val needsPinSetup: Boolean = false,
+    /** The restaurant's name from the desktop (last known one while it is not reachable). */
+    val restaurantName: String = "",
 )
 
 class SplashViewModel(app: Application) : AndroidViewModel(app) {
@@ -39,7 +43,9 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = AppPrefs(app)
     private val api = ApiClient(prefs)
 
-    private val _state = MutableStateFlow(SplashState().withAddress(prefs.serverUrl))
+    private val _state = MutableStateFlow(
+        SplashState(restaurantName = prefs.restaurantName.orEmpty()).withAddress(prefs.serverUrl)
+    )
     val state: StateFlow<SplashState> = _state.asStateFlow()
 
     init {
@@ -88,7 +94,9 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Back to a clean PIN screen after the desktop ended the session (idle too long). */
     fun resetForRelogin() {
-        _state.update { it.copy(signedInAs = null, pin = "", pinError = null, busy = false, revoked = false) }
+        _state.update {
+            it.copy(signedInAs = null, pin = "", pinError = null, busy = false, revoked = false, needsPinSetup = false)
+        }
         checkDesktop()
     }
 
@@ -104,9 +112,21 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.update { it.copy(checking = true, statusError = null) }
             val result = api.health()
+            if (result is ApiResult.Ok) {
+                // PROPOSED: /api/health (with the device token) returns `restaurantName`.
+                val name = listOf("restaurantName", "outletName", "businessName")
+                    .map { key -> result.value.optString(key).trim() }
+                    .firstOrNull { n -> n.isNotEmpty() && n != "null" }
+                if (name != null) prefs.restaurantName = name
+            }
             _state.update {
                 when (result) {
-                    is ApiResult.Ok -> it.copy(checking = false, reachable = true, statusError = null)
+                    is ApiResult.Ok -> it.copy(
+                        checking = false,
+                        reachable = true,
+                        statusError = null,
+                        restaurantName = prefs.restaurantName.orEmpty(),
+                    )
                     is ApiResult.Err -> it.copy(
                         checking = false,
                         reachable = false,
@@ -125,10 +145,15 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun verifyDevice() {
         if (prefs.deviceToken == null) return
-        val result = api.checkDevice()
-        if (result is ApiResult.Err && (result.code == 401 || result.code == 403)) {
-            prefs.clearPairing()
-            _state.update { it.copy(revoked = true, pin = "") }
+        when (val result = api.pinStatus()) {
+            is ApiResult.Ok -> {
+                prefs.pinSet = result.value.pinSet
+                if (!result.value.pinSet) _state.update { it.copy(needsPinSetup = true) }
+            }
+            is ApiResult.Err -> if (result.code == 401 || result.code == 403) {
+                prefs.clearPairing()
+                _state.update { it.copy(revoked = true, pin = "") }
+            }
         }
     }
 
@@ -151,22 +176,50 @@ class SplashViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, pinError = null) }
             val result = api.loginWithPin(current.pin)
+            if (result is ApiResult.Ok) {
+                // Currency and locale for prices. Best effort: the defaults are INR and en-IN.
+                (api.me() as? ApiResult.Ok)?.value?.let {
+                    Money.configure(it.optString("currencyCode"), it.optString("locale"))
+                }
+            }
+            if (result is ApiResult.Err && result.code == 401) {
+                // DEVICE_REVOKED (15 wrong PINs) or a revoked token.
+                prefs.clearPairing()
+                _state.update { it.copy(busy = false, pin = "", revoked = true) }
+                return@launch
+            }
             _state.update {
                 when (result) {
                     is ApiResult.Ok -> it.copy(
                         busy = false,
                         pin = "",
-                        tokenHash= result.value.optString("tokenHash"),
-                        signedInAs = result.value.optString("userName").ifBlank { "Waiter" },
+                        signedInAs = prefs.pairedUserName?.takeIf { n -> n.isNotBlank() } ?: "Waiter",
                     )
-                    is ApiResult.Err -> it.copy(
+                    is ApiResult.Err -> if (result.apiCode == "PIN_NOT_SET") it.copy(
                         busy = false,
                         pin = "",
-                        pinError = result.message,
+                        needsPinSetup = true,
+                    ) else it.copy(
+                        busy = false,
+                        pin = "",
+                        pinError = pinErrorText(result),
                     )
                 }
             }
         }
+    }
+
+    /** Wrong PIN: say how many tries are left. Locked out: say for how long. */
+    private fun pinErrorText(e: ApiResult.Err): String = when {
+        e.apiCode == "LOCKED_OUT" || e.code == 429 -> {
+            val minutes = e.retryAfterSeconds?.let { (it + 59) / 60 }
+            if (minutes != null) "Too many wrong PINs. Try again in $minutes ${if (minutes == 1) "minute" else "minutes"}."
+            else "Too many wrong PINs. Try again later."
+        }
+        e.apiCode == "WRONG_PIN" -> e.attemptsLeft?.let {
+            "Wrong PIN. $it ${if (it == 1) "try" else "tries"} left."
+        } ?: "Wrong PIN."
+        else -> e.message
     }
 
     companion object {

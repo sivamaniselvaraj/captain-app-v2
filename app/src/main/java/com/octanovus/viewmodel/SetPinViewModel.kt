@@ -78,12 +78,18 @@ class SetPinViewModel(app: Application) : AndroidViewModel(app) {
                     prefs.pinSet = true
                     _state.value = _state.value.copy(busy = false, done = true)
                 }
-
-                is ApiResult.Err -> _state.value = _state.value.copy(
-                    busy = false,
-                    confirm = "",
-                    error = result.message,
-                )
+                is ApiResult.Err -> {
+                    if (result.apiCode == "PIN_ALREADY_SET") {
+                        // A PIN exists already: go to the keypad.
+                        prefs.pinSet = true
+                        _state.value = _state.value.copy(busy = false, done = true)
+                    } else if (result.apiCode == "PIN_WEAK") {
+                        // Too easy to guess (1111, 1234...): start again with a new one.
+                        _state.value = SetPinState(error = result.message)
+                    } else {
+                        _state.value = _state.value.copy(busy = false, confirm = "", error = result.message)
+                    }
+                }
             }
         }
     }

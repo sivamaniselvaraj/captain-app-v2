@@ -60,6 +60,13 @@ object NotificationHub {
     @Synchronized
     fun receive(incoming: List<AppNotification>): List<AppNotification> {
         if (!::prefs.isInitialized) return emptyList()
+        // Ids restart at 1 when the desktop restarts. An id lower than the stored one means that
+        // happened: forget the old ids, or every new alert would look like one already seen.
+        if (lastId > 0 && incoming.any { it.id < lastId }) {
+            _items.value = emptyList()
+            lastId = 0L
+            seenId = 0L
+        }
         incoming.maxOfOrNull { it.id }?.let { if (it > lastId) lastId = it }
         val known = _items.value.map { it.id }.toHashSet()
         val fresh = incoming.filter { it.type != "cancelled" }.filter { known.add(it.id) }

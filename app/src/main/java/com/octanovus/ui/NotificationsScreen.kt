@@ -36,7 +36,6 @@ import com.octanovus.data.AppNotification
 import com.octanovus.data.NotificationHub
 import kotlinx.coroutines.delay
 import java.time.Instant
-import kotlin.compareTo
 
 private val DelayColor = Color(0xFFE67E22)
 
@@ -170,5 +169,5 @@ private fun NotificationRow(n: AppNotification, unread: Boolean, now: Instant, o
 private fun timeAgo(at: Instant?, now: Instant): String {
     if (at == null) return ""
     val minutes = elapsedMinutes(at, now)
-    return if (minutes == 1) "Just now" else "${formatElapsed(minutes)} ago"
+    return if (minutes < 1) "Just now" else "${formatElapsed(minutes)} ago"
 }

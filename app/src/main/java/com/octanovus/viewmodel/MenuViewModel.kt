@@ -108,7 +108,8 @@ class MenuViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update { it.copy(error = message) }
                 }
                 // Try again sooner when there is nothing to show yet.
-                if (_state.value.loaded) REFRESH_MS else RETRY_MS
+                if (result.code == 429) (result.retryAfterSeconds?.times(1000L) ?: RETRY_MS)
+                else if (_state.value.loaded) REFRESH_MS else RETRY_MS
             }
         }
 

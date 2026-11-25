@@ -20,8 +20,6 @@ import java.time.Instant
 
 /** Pieces shared by the Tables, Menu, View order, Order sent and My orders screens. */
 
-/** Page background used by every screen after login. */
-
 /** Round white button with one glyph, for the back button and the header actions. */
 @Composable
 internal fun RoundIconButton(glyph: String, description: String, onClick: () -> Unit) {

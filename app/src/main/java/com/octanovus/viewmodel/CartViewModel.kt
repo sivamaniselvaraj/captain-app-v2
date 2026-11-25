@@ -90,7 +90,7 @@ private const val SEND_OCCUPANTS = false
 const val MAX_LINES = 60
 const val MAX_QUANTITY = 99
 const val MAX_NOTES_LENGTH = 200
-const val MAX_ITEM_NOTE_LENGTH = 100
+const val MAX_ITEM_NOTE_LENGTH = 200
 
 /** The line the desktop reads back to show which table a takeaway is for. */
 fun takeawayNote(table: String) = "Takeaway for Table $table"

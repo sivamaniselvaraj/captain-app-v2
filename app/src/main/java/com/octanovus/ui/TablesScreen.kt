@@ -90,60 +90,72 @@ fun TablesScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Canvas)
-                .padding(horizontal = 20.dp),
-        ) {
-            Header(onProfile = onProfile, onMenu = { drawerOpen = true })
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Canvas)
+            .padding(horizontal = 20.dp),
+    ) {
+        Header(onProfile = onProfile, onMenu = { drawerOpen = true })
 
-            s.error?.let {
-                Text(
-                    if (s.loaded) "$it Showing the last known tables." else it,
-                    color = BadRed,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-
-            when {
-                !s.loaded && s.error == null -> CenterMessage("Loading tables...")
-                s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
-                s.loaded -> {
-                    FloorChips(s, onSelect = vm::selectFloor)
-                    TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
-                    Legend(s.levels)
-                }
-
-                else -> Box(Modifier.weight(1f))
-            }
-        }
-
-        if (drawerOpen) {
-            MenuDrawer(
-                userName = userName,
-                onClose = { drawerOpen = false },
-                onNewTakeaway = {
-                    drawerOpen = false
-                    takeawayOpen = true
-                    vm.loadMyTables()
-                },
-                onMyOrders = { drawerOpen = false; onMyOrders() },
-                onNotifications = { drawerOpen = false; onNotifications() },
+        if (s.offlineMode) {
+            Text(
+                "Desktop offline mode. Ordering still works.",
+                color = Muted,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFFFF1D6))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             )
         }
-        if (takeawayOpen) {
-            TakeawaySheet(
-                mine = mine,
-                onClose = { takeawayOpen = false },
-                onRetry = vm::loadMyTables,
-                onContinue = { table ->
-                    takeawayOpen = false
-                    onNewTakeaway(table.number)
-                },
+
+        s.error?.let {
+            Text(
+                if (s.loaded) "$it Showing the last known tables." else it,
+                color = BadRed,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 12.dp),
             )
         }
+
+        when {
+            !s.loaded && s.error == null -> CenterMessage("Loading tables...")
+            s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
+            s.loaded -> {
+                FloorChips(s, onSelect = vm::selectFloor)
+                TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
+                Legend(s.levels)
+            }
+            else -> Box(Modifier.weight(1f))
+        }
+    }
+
+    if (drawerOpen) {
+        MenuDrawer(
+            userName = userName,
+            onClose = { drawerOpen = false },
+            onNewTakeaway = {
+                drawerOpen = false
+                takeawayOpen = true
+                vm.loadMyTables()
+            },
+            onMyOrders = { drawerOpen = false; onMyOrders() },
+            onNotifications = { drawerOpen = false; onNotifications() },
+        )
+    }
+    if (takeawayOpen) {
+        TakeawaySheet(
+            mine = mine,
+            onClose = { takeawayOpen = false },
+            onRetry = vm::loadMyTables,
+            onContinue = { table ->
+                takeawayOpen = false
+                onNewTakeaway(table.number)
+            },
+        )
+    }
     }
 }
 
@@ -284,6 +296,17 @@ private fun TableTile(
             Text("COMPLETED", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
 
+        table.isBlocked -> Column(
+            modifier = base
+                .background(Color(0xFFEDEDE8))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .semantics { contentDescription = "Table ${table.number}, ${table.status}" },
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(table.number, color = Muted, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text(table.status.uppercase(), color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+
         // Available, and any status the phone does not know: shown as free.
         else -> Column(
             modifier = base
@@ -334,4 +357,3 @@ private fun Modifier.dashedBorder(color: Color): Modifier = drawBehind {
         ),
     )
 }
-

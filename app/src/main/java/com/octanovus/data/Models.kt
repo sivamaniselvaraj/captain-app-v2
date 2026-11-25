@@ -25,6 +25,9 @@ data class TableInfo(
     val isOccupied: Boolean get() = status == STATUS_OCCUPIED
     val isCompleted: Boolean get() = status == STATUS_COMPLETED
 
+    /** Reserved or being cleaned: shown, but not offered for new guests. */
+    val isBlocked: Boolean get() = status == "reserved" || status == "cleaning"
+
     /** A tap starts a brand new order (not an extra round) unless the table is occupied or completed. */
     val startsNewOrder: Boolean get() = !isOccupied && !isCompleted
 

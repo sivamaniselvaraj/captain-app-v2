@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.core.content.edit
+import kotlin.text.clear
 
 /**
  * Local settings.
@@ -33,6 +34,11 @@ class AppPrefs(context: Context) {
         get() = plain.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
         set(value) = plain.edit { putString(KEY_SERVER_URL, value) }
 
+    /** The restaurant's name from the desktop, shown on the splash screen. Kept for the next launch. */
+    var restaurantName: String?
+        get() = plain.getString("restaurant_name", null)
+        set(value) = plain.edit { putString("restaurant_name", value) }
+
     var deviceToken: String?
         get() = secure.getString(KEY_DEVICE_TOKEN, null)
         set(value) = secure.edit { putString(KEY_DEVICE_TOKEN, value) }
@@ -54,7 +60,8 @@ class AppPrefs(context: Context) {
     fun clearPairing() {
         secure.edit { remove(KEY_DEVICE_TOKEN) }
         plain.edit { remove("paired_user_name").putBoolean("pin_set", false) }
-        Session.pin = null
+        Session.clear()
+        NotificationHub.clear()
     }
 
     companion object {

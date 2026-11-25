@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.octanovus.data.TableInfo
 import com.octanovus.viewmodel.PlacedOrder
 
 /** Confirms the order reached the desktop. Back goes to the menu, as does "Back to menu". */
@@ -57,7 +58,8 @@ fun OrderSentScreen(
             }
             Text("Order sent", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(
-                "Table ${order.tableNumber} · Order #${order.orderNumber}",
+                if (order.tableNumber == TableInfo.TAKEAWAY_LABEL) listOfNotNull("Takeaway", order.deliverTo?.let { "Table $it" }, "Order #${order.orderNumber}").joinToString(" · ")
+                else "Table ${order.tableNumber} · Order #${order.orderNumber}",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
             )

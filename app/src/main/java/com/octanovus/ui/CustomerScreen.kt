@@ -104,7 +104,8 @@ fun CustomerScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Add the guest's details for this order. Every field is optional.",
+                if (table.isTakeaway) "Add the customer's details for this takeaway order. Every field is optional."
+                else "Add the guest's details for this order. Every field is optional.",
                 color = Muted,
                 fontSize = 14.sp,
             )
@@ -139,7 +140,7 @@ fun CustomerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            OutlinedTextField(
+            if (!table.isTakeaway) OutlinedTextField(
                 value = occupants,
                 onValueChange = { occupants = it.filter(Char::isDigit).take(2) },
                 label = { Text("Number of occupants") },

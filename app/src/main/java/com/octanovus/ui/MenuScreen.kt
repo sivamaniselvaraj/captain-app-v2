@@ -74,8 +74,6 @@ fun MenuScreen(
     onBack: () -> Unit,
     onViewOrder: () -> Unit,
     onUnpaired: () -> Unit,
-    /** True when this waiter already has an order on this table, so a takeaway can be started for it. */
-    takeawayAllowed: Boolean = false,
     onStartTakeaway: () -> Unit = {},
     menuVm: MenuViewModel = viewModel(),
     cartVm: CartViewModel = viewModel(),
@@ -106,7 +104,7 @@ fun MenuScreen(
                 if (table.isTakeaway) "For Table ${table.deliverTo ?: "?"}" else "Restaurant menu",
                 table.number,
                 onBack,
-                onTakeaway = if (takeawayAllowed && !table.isTakeaway) ({ askTakeaway = true }) else null,
+                onTakeaway = if (!table.isTakeaway) ({ askTakeaway = true }) else null,
             )
             SearchBox(
                 query = menu.query,
@@ -442,7 +440,7 @@ private fun ItemTile(
             )
             Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFFEFEFEB)))
             TileButton(
-                label = if (note.isBlank()) "Note" else "Edit",
+                label = if (note.isBlank()) "Note" else "Edit note",
                 description = (if (note.isBlank()) "Add note for " else "Edit note for ") + item.name,
                 enabled = added,
                 onClick = onNote,

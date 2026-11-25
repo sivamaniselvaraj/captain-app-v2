@@ -127,14 +127,6 @@ class MainActivity : ComponentActivity() {
                         var pinNotice by remember { mutableStateOf<String?>(null) }
                         // The table's menu a takeaway was started from, so Back returns to it.
                         var takeawayFrom by remember { mutableStateOf<TableInfo?>(null) }
-                        // Tables this waiter has an order on: the bag button on the menu needs it.
-                        val myTables by tablesVm.mine.collectAsState()
-                        val menuTable = selectedTable
-                        LaunchedEffect(stage, menuTable?.tableId) {
-                            if (stage == Stage.MENU && menuTable != null && !menuTable.isTakeaway) {
-                                tablesVm.loadMyTables()
-                            }
-                        }
 
                         // The desktop asked for the PIN again (idle too long): go to PIN login with a message.
                         val pinExpired by Session.expired.collectAsState()
@@ -234,7 +226,6 @@ class MainActivity : ComponentActivity() {
                                             stage = Stage.TABLES
                                         }
                                     },
-                                    takeawayAllowed = myTables.tables.any { it.tableId == table.tableId },
                                     onStartTakeaway = {
                                         takeawayFrom = table
                                         selectedTable = TableInfo.takeaway(table.number)

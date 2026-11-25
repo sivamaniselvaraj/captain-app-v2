@@ -53,17 +53,6 @@ data class TablesState(
     }
 }
 
-/** A table the waiter has an active order on. The choices when starting a takeaway. */
-data class MyTable(val tableId: String, val number: String, val floor: String) {
-    val label: String get() = if (floor.isBlank()) "Table $number" else "Table $number \u00B7 $floor"
-}
-
-data class MyTablesState(
-    val loading: Boolean = false,
-    val tables: List<MyTable> = emptyList(),
-    val error: String? = null,
-)
-
 /**
  * Keeps the table grid in sync with the desktop.
  * The screen calls [pollLoop] only while it is visible, so polling stops in the background.
@@ -77,40 +66,6 @@ class TablesViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(TablesState())
     val state: StateFlow<TablesState> = _state.asStateFlow()
-
-    private val _mine = MutableStateFlow(MyTablesState())
-    val mine: StateFlow<MyTablesState> = _mine.asStateFlow()
-
-    /**
-     * Finds the tables this waiter has an active order on, from GET /api/orders/mine.
-     * Tables that are free again (for example completed and billed) are left out.
-     */
-    fun loadMyTables() {
-        viewModelScope.launch {
-            _mine.value = MyTablesState(loading = true)
-            when (val result = api.protectedGet("/api/orders/mine")) {
-                is ApiResult.Ok -> {
-                    val grid = _state.value.tables.associateBy { it.tableId }
-                    val tables = result.value.toMyOrders()
-                        .filter { !it.isTakeaway }
-                        .distinctBy { it.tableId }
-                        .filter { grid[it.tableId]?.isAvailable != true }
-                        .map { MyTable(it.tableId, it.tableNumber, it.floor) }
-                        .sortedWith(compareBy<MyTable>({ it.number.toIntOrNull() ?: Int.MAX_VALUE }, { it.number }))
-                    _mine.value = MyTablesState(tables = tables)
-                }
-                is ApiResult.Err -> {
-                    if (result.code == 401) {
-                        prefs.clearPairing()
-                        _state.update { it.copy(unauthorised = true) }
-                        _mine.value = MyTablesState()
-                    } else {
-                        _mine.value = MyTablesState(error = result.message)
-                    }
-                }
-            }
-        }
-    }
 
     fun selectFloor(floor: String) = _state.update { it.copy(selectedFloor = floor) }
 

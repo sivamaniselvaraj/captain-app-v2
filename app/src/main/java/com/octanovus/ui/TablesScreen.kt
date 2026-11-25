@@ -87,60 +87,59 @@ fun TablesScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Canvas)
-            .padding(horizontal = 20.dp),
-    ) {
-        Header(onProfile = onProfile, onMenu = { drawerOpen = true })
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Canvas)
+                .padding(horizontal = 20.dp),
+        ) {
+            Header(onProfile = onProfile, onMenu = { drawerOpen = true })
 
-        if (s.offlineMode) {
-            Text(
-                "Desktop offline mode. Ordering still works.",
-                color = Muted,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFFFF1D6))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
-
-        s.error?.let {
-            Text(
-                if (s.loaded) "$it Showing the last known tables." else it,
-                color = BadRed,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-        }
-
-        when {
-            !s.loaded && s.error == null -> CenterMessage("Loading tables...")
-            s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
-            s.loaded -> {
-                FloorChips(s, onSelect = vm::selectFloor)
-                TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
-                Legend(s.levels)
+            if (s.offlineMode) {
+                Text(
+                    "Desktop offline mode. Ordering still works.",
+                    color = Muted,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFFF1D6))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
             }
-            else -> Box(Modifier.weight(1f))
+
+            s.error?.let {
+                Text(
+                    if (s.loaded) "$it Showing the last known tables." else it,
+                    color = BadRed,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+
+            when {
+                !s.loaded && s.error == null -> CenterMessage("Loading tables...")
+                s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
+                s.loaded -> {
+                    FloorChips(s, onSelect = vm::selectFloor)
+                    TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
+                    Legend(s.levels)
+                }
+
+                else -> Box(Modifier.weight(1f))
+            }
         }
-    }
 
-    if (drawerOpen) {
-        MenuDrawer(
-            userName = userName,
-            onClose = { drawerOpen = false },
-            onMyOrders = { drawerOpen = false; onMyOrders() },
-            onNotifications = { drawerOpen = false; onNotifications() },
-        )
-    }
-
+        if (drawerOpen) {
+            MenuDrawer(
+                userName = userName,
+                onClose = { drawerOpen = false },
+                onMyOrders = { drawerOpen = false; onMyOrders() },
+                onNotifications = { drawerOpen = false; onNotifications() },
+            )
+        }
     }
 }
-
 @Composable
 private fun Header(onProfile: () -> Unit, onMenu: () -> Unit) {
     Row(

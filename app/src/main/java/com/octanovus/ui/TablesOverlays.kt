@@ -19,9 +19,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.octanovus.data.NotificationHub
-import com.octanovus.viewmodel.MyTable
-import com.octanovus.viewmodel.MyTablesState
-
 
 private val Scrim = Color(0x73000000)
 

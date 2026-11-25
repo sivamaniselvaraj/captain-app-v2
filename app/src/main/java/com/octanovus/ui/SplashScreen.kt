@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +62,9 @@ fun SplashScreen(
         if (s.needsPinSetup) onNeedsPinSetup()
     }
 
+    // The Continue button is pinned at the bottom, so it never scrolls out of sight.
+    // Everything above it scrolls when the screen is short.
+    Column(Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -91,7 +95,8 @@ fun SplashScreen(
         Spacer(Modifier.height(8.dp))
         ConnectionStatus(s, onRetry = vm::checkDesktop)
 
-        DesktopSetup(s, vm)
+        // The address is only shown while editing, or when the desktop cannot be reached.
+        if (s.editing || (!s.reachable && !s.checking)) DesktopSetup(s, vm)
 
         if (s.signedInAs != null) {
             Spacer(Modifier.height(24.dp))
@@ -108,18 +113,22 @@ fun SplashScreen(
         }
 
         Keypad(onDigit = vm::onDigit, onDelete = vm::onDelete)
+    }
 
+    if (s.signedInAs == null) {
         Button(
             onClick = vm::submitPin,
             enabled = s.reachable && !s.busy && s.pin.length >= SplashViewModel.MIN_PIN,
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 16.dp)
                 .height(56.dp),
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Ink, contentColor = androidx.compose.ui.graphics.Color.White),
         ) {
             Text(if (s.busy) "Checking..." else "Continue", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
+    }
     }
 }
 

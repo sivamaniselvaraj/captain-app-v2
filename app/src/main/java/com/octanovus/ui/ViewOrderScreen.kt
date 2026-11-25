@@ -22,6 +22,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -316,6 +322,30 @@ private fun CustomerCard(cart: CartState, enabled: Boolean, onEdit: () -> Unit) 
 
 @Composable
 private fun InstructionBox(value: String, enabled: Boolean, onChange: (String) -> Unit) {
+    // Hidden until the waiter taps the link. A saved instruction keeps the box open.
+    var opened by rememberSaveable { mutableStateOf(false) }
+    val showBox = opened || value.isNotBlank()
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(opened) {
+        if (opened && value.isBlank()) runCatching { focus.requestFocus() }
+    }
+
+    if (!showBox) {
+        Text(
+            "Add additional instruction",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (enabled) Ink else Dot,
+            textDecoration = TextDecoration.Underline,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .heightIn(min = 44.dp)
+                .clickable(enabled = enabled) { opened = true }
+                .wrapContentHeight(Alignment.CenterVertically),
+        )
+        return
+    }
+
     Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Additional instruction", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
@@ -334,7 +364,7 @@ private fun InstructionBox(value: String, enabled: Boolean, onChange: (String) -
                 focusedBorderColor = Ink,
                 unfocusedBorderColor = Color(0xFFD9D9D4),
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
         )
     }
 }

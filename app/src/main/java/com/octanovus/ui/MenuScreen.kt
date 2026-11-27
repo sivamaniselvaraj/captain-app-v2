@@ -216,6 +216,19 @@ private fun SearchBox(query: String, onChange: (String) -> Unit, onSearch: () ->
         value = query,
         onValueChange = onChange,
         placeholder = { Text("Search by name or keyword") },
+        // Clear button: shows only when there is text. One tap empties the box and brings back the full menu.
+        trailingIcon = if (query.isNotEmpty()) ({
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable { onChange("") }
+                    .semantics { contentDescription = "Clear search" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("\u2715", fontSize = 16.sp, color = Muted)
+            }
+        }) else null,
         singleLine = true,
         shape = RoundedCornerShape(24.dp),
         colors = OutlinedTextFieldDefaults.colors(

@@ -290,7 +290,12 @@ private fun ItemList(
     onNote: (MenuItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shown = menu.visibleItems
+    // Filtering and grouping depend only on the menu, category and search, not on the cart.
+    // Cached so a tap on an item does not redo them.
+    val shown = remember(menu.items, menu.query, menu.selectedCategory) { menu.visibleItems }
+    val groups = remember(shown, menu.groupedByCategory) {
+        if (menu.groupedByCategory) shown.groupBy { it.categoryName } else mapOf("" to shown)
+    }
     if (shown.isEmpty()) {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
@@ -311,7 +316,6 @@ private fun ItemList(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // With "All" or a search, items are grouped under their category name.
-        val groups = if (menu.groupedByCategory) shown.groupBy { it.categoryName } else mapOf("" to shown)
         groups.forEach { (category, group) ->
             if (menu.groupedByCategory) {
                 item(key = "category-$category", span = { GridItemSpan(maxLineSpan) }) {

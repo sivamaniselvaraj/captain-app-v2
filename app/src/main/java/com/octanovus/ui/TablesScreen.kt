@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
@@ -211,14 +212,38 @@ private fun TableGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(s.visibleTables, key = { it.tableId }) { table ->
-            val minutes = elapsedMinutes(table.since, s.now)
-            TableTile(
-                table = table,
-                minutes = minutes,
-                level = s.levels.levelAt(minutes),
-                onClick = { onTableSelected(table) },
-            )
+        // One section per floor: a heading with the table count, then that floor's tables.
+        val byFloor = s.visibleTables.groupBy { it.floor.ifBlank { TablesState.DEFAULT_FLOOR } }
+        byFloor.forEach { (floor, tables) ->
+            item(key = "floor-$floor", span = { GridItemSpan(maxLineSpan) }) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        floor.uppercase(),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.6.sp,
+                        color = Muted,
+                    )
+                    Text(
+                        if (tables.size == 1) "1 TABLE" else "${tables.size} TABLES",
+                        fontSize = 12.sp,
+                        letterSpacing = 1.6.sp,
+                        color = Muted,
+                    )
+                }
+            }
+            items(tables, key = { it.tableId }) { table ->
+                val minutes = elapsedMinutes(table.since, s.now)
+                TableTile(
+                    table = table,
+                    minutes = minutes,
+                    level = s.levels.levelAt(minutes),
+                    onClick = { onTableSelected(table) },
+                )
+            }
         }
     }
 }

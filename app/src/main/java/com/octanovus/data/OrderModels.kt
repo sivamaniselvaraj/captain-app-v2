@@ -43,6 +43,8 @@ data class OrderItem(
     val quantity: Int,
     /** Step code: new, preparing, ready or served. */
     val step: String,
+    /** The kitchen note for this dish. Empty when there is none. */
+    val note: String = "",
 )
 
 /** An order this device placed, from GET /api/orders/mine. */
@@ -100,7 +102,9 @@ fun JSONObject.toMyOrders(): List<MyOrder> {
                     id = it.optString("id").ifBlank { "$orderId-$j" },
                     name = it.optString("name").ifBlank { "Item" },
                     quantity = it.optInt("quantity", 1),
-                    step = it.optString("step").ifBlank { orderStep },
+                    // The desktop sends the dish's kitchen step as `status` (older builds: `step`).
+                    step = it.text("status").ifBlank { it.text("step") }.ifBlank { orderStep },
+                    note = it.text("note"),
                 )
             }
         }
@@ -112,11 +116,40 @@ fun JSONObject.toMyOrders(): List<MyOrder> {
             floor = if (takeaway) "" else o.text("floor"),
             isTakeaway = takeaway,
             deliverTo = if (takeaway) deliveryTableFrom(o.text("notes")) else null,
-            placedAt = if (o.isNull("placedAt")) null else parseInstant(o.optString("placedAt")),
+            placedAt = (o.text("createdAt").ifBlank { o.text("placedAt") }).takeIf { it.isNotBlank() }?.let(::parseInstant),
             step = orderStep,
             total = o.optDouble("total", 0.0).let { v -> if (v.isNaN()) 0.0 else v },
             items = items,
         )
     }
     return list
+}
+
+/** One order in full, from GET /api/order/{orderId}. Dishes carry no kitchen step there. */
+data class OrderDetail(
+    val orderNumber: String,
+    val placedAt: Instant?,
+    val items: List<OrderItem>,
+)
+
+fun JSONObject.toOrderDetail(): OrderDetail {
+    val items = ArrayList<OrderItem>()
+    val array = optJSONArray("items")
+    if (array != null) {
+        for (j in 0 until array.length()) {
+            val it = array.optJSONObject(j) ?: continue
+            items += OrderItem(
+                id = it.text("id").ifBlank { "item-$j" },
+                name = it.text("name").ifBlank { "Item" },
+                quantity = it.optInt("quantity", 1),
+                step = "",
+                note = it.text("specialInstructions"),
+            )
+        }
+    }
+    return OrderDetail(
+        orderNumber = text("orderNumber").ifBlank { "?" },
+        placedAt = text("createdAt").takeIf { it.isNotBlank() }?.let(::parseInstant),
+        items = items,
+    )
 }

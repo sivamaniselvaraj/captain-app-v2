@@ -20,6 +20,8 @@ data class TableInfo(
     val capacity: Int? = null,
     /** For the takeaway stand-in only: the number of the table the order is delivered to. */
     val deliverTo: String? = null,
+    /** The open orders (rounds) of the running bill, oldest first. Empty when the table is free. */
+    val orders: List<OrderRef> = emptyList(),
 ) {
     val isAvailable: Boolean get() = status == STATUS_AVAILABLE
     val isOccupied: Boolean get() = status == STATUS_OCCUPIED
@@ -71,6 +73,21 @@ fun List<OverdueLevel>.levelAt(minutes: Int): OverdueLevel? =
 
 private const val BILL_PRINTED = "printed"
 
+/** One open order of a table, from `orders` in GET /api/tables. */
+data class OrderRef(val orderId: String, val orderNumber: String)
+
+private fun org.json.JSONArray?.toOrderRefs(): List<OrderRef> {
+    if (this == null) return emptyList()
+    val list = ArrayList<OrderRef>(length())
+    for (i in 0 until length()) {
+        val o = optJSONObject(i) ?: continue
+        val id = o.optString("orderId")
+        if (id.isBlank()) continue
+        list += OrderRef(id, if (o.isNull("orderNumber")) "?" else o.optString("orderNumber").ifBlank { "?" })
+    }
+    return list
+}
+
 fun JSONObject.toTables(): List<TableInfo> {
     val array = optJSONArray("tables") ?: return emptyList()
     val list = ArrayList<TableInfo>(array.length())
@@ -91,6 +108,7 @@ fun JSONObject.toTables(): List<TableInfo> {
             total = if (released) 0.0 else t.optDouble("total", 0.0).let { if (it.isNaN()) 0.0 else it },
             since = if (released || t.isNull("since")) null else parseInstant(t.optString("since")),
             openRounds = if (released) 0 else t.optJSONArray("orders")?.length() ?: 0,
+            orders = if (released) emptyList() else t.optJSONArray("orders").toOrderRefs(),
             capacity = if (!t.has("capacity") || t.isNull("capacity")) null else t.optInt("capacity").takeIf { it > 0 },
         )
     }

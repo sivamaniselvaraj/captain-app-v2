@@ -52,6 +52,7 @@ import com.octanovus.data.AppPrefs
 import com.octanovus.data.OverdueLevel
 import com.octanovus.data.TableInfo
 import com.octanovus.data.levelAt
+import com.octanovus.viewmodel.TableOrdersViewModel
 import com.octanovus.viewmodel.TablesState
 import com.octanovus.viewmodel.TablesViewModel
 
@@ -73,6 +74,8 @@ fun TablesScreen(
     vm: TablesViewModel = viewModel(),
 ) {
     val s by vm.state.collectAsState()
+    val sheetVm: TableOrdersViewModel = viewModel()
+    val sheet by sheetVm.state.collectAsState()
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val userName = remember { AppPrefs(context).pairedUserName }
@@ -123,12 +126,27 @@ fun TablesScreen(
                 s.loaded && s.tables.isEmpty() -> CenterMessage("No tables yet. Add tables on the desktop.")
                 s.loaded -> {
                     FloorChips(s, onSelect = vm::selectFloor)
-                    TableGrid(s, onTableSelected, modifier = Modifier.weight(1f))
+                    TableGrid(s, onTableSelected, onViewOrders = { sheetVm.open(it) }, modifier = Modifier.weight(1f))
                     Legend(s.levels)
                 }
 
                 else -> Box(Modifier.weight(1f))
             }
+        }
+
+        sheet.table?.let { sheetTable ->
+            val minutes = elapsedMinutes(sheetTable.since, s.now)
+            val count = sheetTable.orders.size
+            TableOrdersSheet(
+                s = sheet,
+                subtitle = listOfNotNull(
+                    sheetTable.floor.takeIf { it.isNotBlank() },
+                    formatElapsed(minutes),
+                    if (count == 1) "1 order" else "$count orders",
+                ).joinToString(" \u00B7 "),
+                onAddItems = { sheetVm.close(); onTableSelected(sheetTable) },
+                onClose = { sheetVm.close() },
+            )
         }
 
         if (drawerOpen) {
@@ -204,6 +222,7 @@ private fun FloorChips(s: TablesState, onSelect: (String) -> Unit) {
 private fun TableGrid(
     s: TablesState,
     onTableSelected: (TableInfo) -> Unit,
+    onViewOrders: (TableInfo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -242,6 +261,7 @@ private fun TableGrid(
                     minutes = minutes,
                     level = s.levels.levelAt(minutes),
                     onClick = { onTableSelected(table) },
+                    onViewOrders = { onViewOrders(table) },
                 )
             }
         }
@@ -254,6 +274,7 @@ private fun TableTile(
     minutes: Int,
     level: OverdueLevel?,
     onClick: () -> Unit,
+    onViewOrders: () -> Unit = {},
 ) {
     val shape = RoundedCornerShape(16.dp)
     val base = Modifier
@@ -267,27 +288,38 @@ private fun TableTile(
             val textColor = if (background.luminance() > 0.5f) Ink else Color.White
             val label = level?.name?.uppercase()
             val summary = listOfNotNull(label, formatMoney(table.total)).joinToString(" · ")
-            Column(
-                modifier = base
-                    .background(background)
-                    .clickable(onClick = onClick)
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-                    .semantics {
-                        contentDescription = "Table ${table.number}, occupied, " +
-                            "${level?.name ?: "no level"}, ${formatElapsed(minutes)}, " +
-                            "${formatMoney(table.total)} rupees"
-                    },
-                verticalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
+            Box {
+                Column(
+                    modifier = base
+                        .background(background)
+                        .clickable(onClick = onClick)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .semantics {
+                            contentDescription = "Table ${table.number}, occupied, " +
+                                "${level?.name ?: "no level"}, ${formatElapsed(minutes)}, " +
+                                "${formatMoney(table.total)} rupees"
+                        },
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
+                    // The top-right corner belongs to the receipt button, so the time moves down.
                     Text(table.number, color = textColor, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    Text(formatElapsed(minutes), color = textColor, fontSize = 12.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(formatElapsed(minutes), color = textColor, fontSize = 12.sp)
+                        Text(summary, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                Text(summary, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                // Shortcut: opens this table's orders without leaving the screen.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(textColor.copy(alpha = 0.18f))
+                        .clickable(onClick = onViewOrders)
+                        .semantics { contentDescription = "View orders for table ${table.number}" },
+                    contentAlignment = Alignment.Center,
+                ) { ReceiptIcon(color = textColor) }
             }
         }
 
